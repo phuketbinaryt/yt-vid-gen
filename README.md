@@ -71,6 +71,29 @@ redis-server
 python main.py
 ```
 
+## Authentication (Optional)
+
+**By default, the API runs without authentication** - you can use all endpoints immediately without any API key.
+
+### To Enable API Key Authentication (Optional):
+1. Set an API key in your `.env` file:
+   ```env
+   API_KEY=your-secret-api-key-here
+   ```
+
+2. Include the API key in requests:
+   ```bash
+   curl -H "Authorization: Bearer your-secret-api-key-here" ...
+   ```
+
+### Without Authentication (Default):
+```bash
+# No API key needed - works immediately
+curl -X POST "http://localhost:8000/api/v1/generate/text-to-video" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "A beautiful sunset", "duration": 5.0}'
+```
+
 ## API Endpoints
 
 ### Health Check
