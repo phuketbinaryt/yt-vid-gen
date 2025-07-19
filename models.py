@@ -21,6 +21,7 @@ class VideoGenerationRequest(BaseModel):
     
     # Image input (optional for text-to-video)
     image: Optional[str] = Field(None, description="Base64 encoded image for image-to-video generation")
+    image_url: Optional[str] = Field(None, description="URL to image for image-to-video generation")
     
     # Video parameters
     duration: float = Field(default=5.0, ge=0.1, le=120.0, description="Video duration in seconds")
@@ -42,16 +43,29 @@ class VideoGenerationRequest(BaseModel):
     # Model selection
     use_f1_model: bool = Field(default=False, description="Use FramePack-F1 model instead of standard")
     
-    @validator('image')
-    def validate_image(cls, v, values):
-        if values.get('mode') == GenerationMode.IMAGE_TO_VIDEO and not v:
-            raise ValueError("Image is required for image-to-video generation")
-        if v:
+    @validator('image_url')
+    def validate_image_inputs(cls, v, values):
+        mode = values.get('mode')
+        image = values.get('image')
+        
+        if mode == GenerationMode.IMAGE_TO_VIDEO:
+            if not image and not v:
+                raise ValueError("Either 'image' (base64) or 'image_url' is required for image-to-video generation")
+            if image and v:
+                raise ValueError("Provide either 'image' (base64) or 'image_url', not both")
+        
+        if image:
             try:
                 # Validate base64 format
-                base64.b64decode(v)
+                base64.b64decode(image)
             except Exception:
                 raise ValueError("Invalid base64 image format")
+        
+        if v:
+            # Basic URL validation
+            if not v.startswith(('http://', 'https://')):
+                raise ValueError("Image URL must start with http:// or https://")
+        
         return v
 
 class JobResponse(BaseModel):

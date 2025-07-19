@@ -5,6 +5,7 @@ import traceback
 import einops
 import numpy as np
 import base64
+import requests
 from io import BytesIO
 from PIL import Image
 from datetime import datetime
@@ -211,8 +212,13 @@ class FramePackWorker:
             job_manager.update_progress(job_id, 5.0, "Processing input...")
             
             # Process input image
-            if mode == GenerationMode.IMAGE_TO_VIDEO and request_data.get('image'):
-                input_image = self.decode_image(request_data['image'])
+            if mode == GenerationMode.IMAGE_TO_VIDEO:
+                if request_data.get('image'):
+                    input_image = self.decode_image(request_data['image'])
+                elif request_data.get('image_url'):
+                    input_image = self.download_image_from_url(request_data['image_url'])
+                else:
+                    raise ValueError("Either 'image' or 'image_url' is required for image-to-video generation")
             else:
                 # Generate default image for text-to-video
                 input_image = self.generate_default_image()

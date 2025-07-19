@@ -80,7 +80,7 @@ GET /health
 
 ### Video Generation
 
-#### Image-to-Video
+#### Image-to-Video (File Upload)
 ```http
 POST /api/v1/generate/image-to-video
 Content-Type: multipart/form-data
@@ -92,6 +92,20 @@ seed: 31337
 steps: 25
 use_teacache: true
 use_f1_model: false
+```
+
+#### Image-to-Video (URL)
+```http
+POST /api/v1/generate/image-to-video-url
+Content-Type: application/x-www-form-urlencoded
+
+prompt=The girl dances gracefully, with clear movements, full of charm.
+image_url=https://example.com/image.jpg
+duration=5.0
+seed=31337
+steps=25
+use_teacache=true
+use_f1_model=false
 ```
 
 #### Text-to-Video
@@ -116,6 +130,27 @@ Content-Type: application/json
   "prompt": "The girl dances gracefully, with clear movements, full of charm.",
   "mode": "image_to_video",
   "image": "base64_encoded_image_data",
+  "duration": 5.0,
+  "seed": 31337,
+  "steps": 25,
+  "cfg_scale": 1.0,
+  "distilled_cfg_scale": 10.0,
+  "use_teacache": true,
+  "use_f1_model": false,
+  "gpu_memory_preservation": 6.0,
+  "mp4_crf": 16
+}
+```
+
+#### Advanced Generation with Image URL (JSON)
+```http
+POST /api/v1/generate
+Content-Type: application/json
+
+{
+  "prompt": "The girl dances gracefully, with clear movements, full of charm.",
+  "mode": "image_to_video",
+  "image_url": "https://example.com/image.jpg",
   "duration": 5.0,
   "seed": 31337,
   "steps": 25,
@@ -197,7 +232,7 @@ API_KEY = "your-api-key"  # Optional
 
 headers = {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
 
-# Image-to-video generation
+# Image-to-video generation (file upload)
 with open("input_image.jpg", "rb") as f:
     files = {"image": f}
     data = {
@@ -216,6 +251,24 @@ with open("input_image.jpg", "rb") as f:
     job = response.json()
     job_id = job["job_id"]
     print(f"Job created: {job_id}")
+
+# Alternative: Image-to-video generation (URL)
+data = {
+    "prompt": "The girl dances gracefully, with clear movements, full of charm.",
+    "image_url": "https://example.com/image.jpg",
+    "duration": 5.0,
+    "use_f1_model": True
+}
+
+response = requests.post(
+    f"{API_BASE}/api/v1/generate/image-to-video-url",
+    data=data,
+    headers=headers
+)
+
+job = response.json()
+job_id = job["job_id"]
+print(f"Job created: {job_id}")
 
 # Monitor progress
 while True:
@@ -253,6 +306,14 @@ while True:
 curl -X POST "http://localhost:8000/api/v1/generate/text-to-video" \
   -H "Authorization: Bearer your-api-key" \
   -d "prompt=A beautiful sunset over mountains" \
+  -d "duration=5.0" \
+  -d "use_f1_model=true"
+
+# Image-to-video generation from URL
+curl -X POST "http://localhost:8000/api/v1/generate/image-to-video-url" \
+  -H "Authorization: Bearer your-api-key" \
+  -d "prompt=The girl dances gracefully" \
+  -d "image_url=https://example.com/image.jpg" \
   -d "duration=5.0" \
   -d "use_f1_model=true"
 

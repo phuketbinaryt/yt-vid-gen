@@ -199,6 +199,47 @@ async def generate_image_to_video(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/api/v1/generate/image-to-video-url", response_model=JobResponse)
+async def generate_image_to_video_from_url(
+    prompt: str,
+    image_url: str,
+    duration: float = Query(default=5.0, ge=0.1, le=120.0),
+    seed: int = Query(default=31337),
+    steps: int = Query(default=25, ge=1, le=100),
+    use_teacache: bool = Query(default=True),
+    use_f1_model: bool = Query(default=False),
+    _: bool = Depends(verify_api_key)
+):
+    """Generate video from image URL and text prompt"""
+    try:
+        # Validate URL
+        if not image_url.startswith(('http://', 'https://')):
+            raise HTTPException(status_code=400, detail="Image URL must start with http:// or https://")
+        
+        # Create request
+        request_data = {
+            "prompt": prompt,
+            "mode": GenerationMode.IMAGE_TO_VIDEO,
+            "image_url": image_url,
+            "duration": duration,
+            "seed": seed,
+            "steps": steps,
+            "use_teacache": use_teacache,
+            "use_f1_model": use_f1_model
+        }
+        
+        job_id = job_manager.create_job(request_data)
+        
+        return JobResponse(
+            job_id=job_id,
+            status=JobStatus.PENDING,
+            message="Image-to-video job created and queued (from URL)",
+            created_at=datetime.utcnow().isoformat()
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/api/v1/generate/text-to-video", response_model=JobResponse)
 async def generate_text_to_video(
     prompt: str,
