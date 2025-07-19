@@ -80,69 +80,54 @@ GET /health
 
 ### Video Generation
 
-#### Image-to-Video (File Upload)
+#### Image-to-Video (Base64)
 ```http
 POST /api/v1/generate/image-to-video
-Content-Type: multipart/form-data
+Content-Type: application/json
 
-prompt: "The girl dances gracefully, with clear movements, full of charm."
-image: [image file]
-duration: 5.0
-seed: 31337
-steps: 25
-use_teacache: true
-use_f1_model: false
+{
+  "prompt": "The girl dances gracefully, with clear movements, full of charm.",
+  "image": "base64_encoded_image_data",
+  "duration": 5.0,
+  "seed": 31337,
+  "steps": 25,
+  "use_teacache": true,
+  "use_f1_model": false
+}
 ```
 
 #### Image-to-Video (URL)
 ```http
-POST /api/v1/generate/image-to-video-url
-Content-Type: application/x-www-form-urlencoded
+POST /api/v1/generate/image-to-video
+Content-Type: application/json
 
-prompt=The girl dances gracefully, with clear movements, full of charm.
-image_url=https://example.com/image.jpg
-duration=5.0
-seed=31337
-steps=25
-use_teacache=true
-use_f1_model=false
+{
+  "prompt": "The girl dances gracefully, with clear movements, full of charm.",
+  "image_url": "https://example.com/image.jpg",
+  "duration": 5.0,
+  "seed": 31337,
+  "steps": 25,
+  "use_teacache": true,
+  "use_f1_model": false
+}
 ```
 
 #### Text-to-Video
 ```http
 POST /api/v1/generate/text-to-video
-Content-Type: application/x-www-form-urlencoded
-
-prompt=A beautiful sunset over mountains
-duration=5.0
-seed=31337
-steps=25
-use_teacache=true
-use_f1_model=false
-```
-
-#### Advanced Generation (JSON)
-```http
-POST /api/v1/generate
 Content-Type: application/json
 
 {
-  "prompt": "The girl dances gracefully, with clear movements, full of charm.",
-  "mode": "image_to_video",
-  "image": "base64_encoded_image_data",
+  "prompt": "A beautiful sunset over mountains",
   "duration": 5.0,
   "seed": 31337,
   "steps": 25,
-  "cfg_scale": 1.0,
-  "distilled_cfg_scale": 10.0,
   "use_teacache": true,
-  "use_f1_model": false,
-  "gpu_memory_preservation": 6.0,
-  "mp4_crf": 16
+  "use_f1_model": false
 }
 ```
 
-#### Advanced Generation with Image URL (JSON)
+#### Advanced Generation (All Options)
 ```http
 POST /api/v1/generate
 Content-Type: application/json
@@ -156,6 +141,7 @@ Content-Type: application/json
   "steps": 25,
   "cfg_scale": 1.0,
   "distilled_cfg_scale": 10.0,
+  "cfg_rescale": 0.0,
   "use_teacache": true,
   "use_f1_model": false,
   "gpu_memory_preservation": 6.0,

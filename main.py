@@ -153,41 +153,19 @@ async def generate_video(
 
 @app.post("/api/v1/generate/image-to-video", response_model=JobResponse)
 async def generate_image_to_video(
-    prompt: str,
-    image: UploadFile = File(...),
-    duration: float = Query(default=5.0, ge=0.1, le=120.0),
-    seed: int = Query(default=31337),
-    steps: int = Query(default=25, ge=1, le=100),
-    use_teacache: bool = Query(default=True),
-    use_f1_model: bool = Query(default=False),
+    request: VideoGenerationRequest,
     _: bool = Depends(verify_api_key)
 ):
-    """Generate video from uploaded image and text prompt"""
+    """Generate video from image (base64 or URL) and text prompt"""
     try:
-        # Validate file
-        if image.content_type not in ["image/jpeg", "image/png", "image/jpg"]:
-            raise HTTPException(status_code=400, detail="Invalid image format. Use JPEG or PNG.")
+        # Ensure it's image-to-video mode
+        request.mode = GenerationMode.IMAGE_TO_VIDEO
         
-        if image.size > settings.MAX_FILE_SIZE:
-            raise HTTPException(status_code=400, detail="Image file too large")
+        # Validate that either image or image_url is provided
+        if not request.image and not request.image_url:
+            raise HTTPException(status_code=400, detail="Either 'image' (base64) or 'image_url' is required")
         
-        # Read and encode image
-        image_data = await image.read()
-        image_b64 = base64.b64encode(image_data).decode('utf-8')
-        
-        # Create request
-        request_data = {
-            "prompt": prompt,
-            "mode": GenerationMode.IMAGE_TO_VIDEO,
-            "image": image_b64,
-            "duration": duration,
-            "seed": seed,
-            "steps": steps,
-            "use_teacache": use_teacache,
-            "use_f1_model": use_f1_model
-        }
-        
-        job_id = job_manager.create_job(request_data)
+        job_id = job_manager.create_job(request.dict())
         
         return JobResponse(
             job_id=job_id,
@@ -199,70 +177,17 @@ async def generate_image_to_video(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/v1/generate/image-to-video-url", response_model=JobResponse)
-async def generate_image_to_video_from_url(
-    prompt: str,
-    image_url: str,
-    duration: float = Query(default=5.0, ge=0.1, le=120.0),
-    seed: int = Query(default=31337),
-    steps: int = Query(default=25, ge=1, le=100),
-    use_teacache: bool = Query(default=True),
-    use_f1_model: bool = Query(default=False),
-    _: bool = Depends(verify_api_key)
-):
-    """Generate video from image URL and text prompt"""
-    try:
-        # Validate URL
-        if not image_url.startswith(('http://', 'https://')):
-            raise HTTPException(status_code=400, detail="Image URL must start with http:// or https://")
-        
-        # Create request
-        request_data = {
-            "prompt": prompt,
-            "mode": GenerationMode.IMAGE_TO_VIDEO,
-            "image_url": image_url,
-            "duration": duration,
-            "seed": seed,
-            "steps": steps,
-            "use_teacache": use_teacache,
-            "use_f1_model": use_f1_model
-        }
-        
-        job_id = job_manager.create_job(request_data)
-        
-        return JobResponse(
-            job_id=job_id,
-            status=JobStatus.PENDING,
-            message="Image-to-video job created and queued (from URL)",
-            created_at=datetime.utcnow().isoformat()
-        )
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/api/v1/generate/text-to-video", response_model=JobResponse)
 async def generate_text_to_video(
-    prompt: str,
-    duration: float = Query(default=5.0, ge=0.1, le=120.0),
-    seed: int = Query(default=31337),
-    steps: int = Query(default=25, ge=1, le=100),
-    use_teacache: bool = Query(default=True),
-    use_f1_model: bool = Query(default=False),
+    request: VideoGenerationRequest,
     _: bool = Depends(verify_api_key)
 ):
     """Generate video from text prompt only"""
     try:
-        request_data = {
-            "prompt": prompt,
-            "mode": GenerationMode.TEXT_TO_VIDEO,
-            "duration": duration,
-            "seed": seed,
-            "steps": steps,
-            "use_teacache": use_teacache,
-            "use_f1_model": use_f1_model
-        }
+        # Ensure it's text-to-video mode
+        request.mode = GenerationMode.TEXT_TO_VIDEO
         
-        job_id = job_manager.create_job(request_data)
+        job_id = job_manager.create_job(request.dict())
         
         return JobResponse(
             job_id=job_id,
