@@ -668,29 +668,32 @@ class FramePackWorker:
     
     def _decode_section(self, job_id, history_latents, history_pixels, total_generated_latent_frames,
                        latent_window_size, is_last_section, timestamp, mp4_crf):
-        """Decode a section of latents to pixels with aggressive memory management"""
+        """Decode a section of latents to pixels with ultra-aggressive memory management"""
         # Clear GPU cache before VAE operations
         torch.cuda.empty_cache()
         
-        if not self.high_vram:
-            # Offload transformer with more aggressive memory preservation
-            offload_model_from_device_for_memory_preservation(self.transformer, target_device=gpu, preserved_memory_gb=10)
-            offload_model_from_device_for_memory_preservation(self.transformer_f1, target_device=gpu, preserved_memory_gb=10)
-            
-            # Clear cache again after offloading
-            torch.cuda.empty_cache()
-            
-            # Load VAE with memory check
-            load_model_as_complete(self.vae, target_device=gpu)
+        # Always use aggressive memory management regardless of high_vram setting
+        # Offload ALL models except VAE with maximum memory preservation
+        offload_model_from_device_for_memory_preservation(self.transformer, target_device=gpu, preserved_memory_gb=15)
+        offload_model_from_device_for_memory_preservation(self.transformer_f1, target_device=gpu, preserved_memory_gb=15)
+        offload_model_from_device_for_memory_preservation(self.text_encoder, target_device=gpu, preserved_memory_gb=15)
+        offload_model_from_device_for_memory_preservation(self.text_encoder_2, target_device=gpu, preserved_memory_gb=15)
+        offload_model_from_device_for_memory_preservation(self.image_encoder, target_device=gpu, preserved_memory_gb=15)
+        
+        # Clear cache again after offloading
+        torch.cuda.empty_cache()
+        
+        # Load VAE with memory check
+        load_model_as_complete(self.vae, target_device=gpu)
         
         real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
         
         try:
             if history_pixels is None:
-                # Process in smaller chunks if needed for large sequences
-                if real_history_latents.shape[2] > 32:  # If more than 32 frames
-                    # Process in chunks of 16 frames
-                    chunk_size = 16
+                # Always use ultra-conservative chunked processing for memory safety
+                if real_history_latents.shape[2] > 8:  # If more than 8 frames, use chunking
+                    # Start with very small chunks (2 frames)
+                    chunk_size = 2
                     pixel_chunks = []
                     
                     for i in range(0, real_history_latents.shape[2], chunk_size):
@@ -704,14 +707,25 @@ class FramePackWorker:
                         pixel_chunks.append(chunk_pixels)
                         
                         # Move chunk to CPU immediately
-                        del chunk_pixels
+                        del chunk_pixels, chunk_latents
                         torch.cuda.empty_cache()
                     
                     # Concatenate chunks on CPU
                     history_pixels = torch.cat(pixel_chunks, dim=2)
                     del pixel_chunks
                 else:
-                    history_pixels = vae_decode(real_history_latents, self.vae).cpu()
+                    # For small sequences, process frame by frame for maximum safety
+                    pixel_frames = []
+                    for frame_idx in range(real_history_latents.shape[2]):
+                        frame_latent = real_history_latents[:, :, frame_idx:frame_idx+1, :, :]
+                        torch.cuda.empty_cache()
+                        frame_pixel = vae_decode(frame_latent, self.vae).cpu()
+                        pixel_frames.append(frame_pixel)
+                        del frame_pixel, frame_latent
+                        torch.cuda.empty_cache()
+                    
+                    history_pixels = torch.cat(pixel_frames, dim=2)
+                    del pixel_frames
             else:
                 section_latent_frames = (latent_window_size * 2 + 1) if is_last_section else (latent_window_size * 2)
                 overlapped_frames = latent_window_size * 4 - 3
@@ -729,50 +743,51 @@ class FramePackWorker:
                 torch.cuda.empty_cache()
         
         except torch.cuda.OutOfMemoryError as e:
-            print(f"⚠️ CUDA OOM during VAE decode, attempting recovery: {e}")
+            print(f"⚠️ CUDA OOM during VAE decode, attempting emergency single-frame recovery: {e}")
             
             # Emergency memory cleanup
             torch.cuda.empty_cache()
             
-            # Try with even smaller chunks
-            if real_history_latents.shape[2] > 8:
-                chunk_size = 4  # Very small chunks
-                pixel_chunks = []
-                
-                for i in range(0, real_history_latents.shape[2], chunk_size):
-                    end_idx = min(i + chunk_size, real_history_latents.shape[2])
-                    chunk_latents = real_history_latents[:, :, i:end_idx, :, :]
-                    
-                    torch.cuda.empty_cache()
-                    chunk_pixels = vae_decode(chunk_latents, self.vae).cpu()
-                    pixel_chunks.append(chunk_pixels)
-                    
-                    del chunk_pixels
-                    torch.cuda.empty_cache()
-                
-                history_pixels = torch.cat(pixel_chunks, dim=2)
-                del pixel_chunks
-            else:
-                # Last resort: process frame by frame
-                pixel_frames = []
-                for frame_idx in range(real_history_latents.shape[2]):
+            # Emergency fallback: Always process frame by frame
+            print(f"🚨 Processing {real_history_latents.shape[2]} frames individually for maximum memory safety")
+            pixel_frames = []
+            
+            for frame_idx in range(real_history_latents.shape[2]):
+                try:
                     frame_latent = real_history_latents[:, :, frame_idx:frame_idx+1, :, :]
+                    
+                    # Clear cache before each frame
                     torch.cuda.empty_cache()
+                    
                     frame_pixel = vae_decode(frame_latent, self.vae).cpu()
                     pixel_frames.append(frame_pixel)
-                    del frame_pixel
+                    
+                    # Immediate cleanup
+                    del frame_pixel, frame_latent
                     torch.cuda.empty_cache()
-                
+                    
+                    if frame_idx % 5 == 0:  # Progress update every 5 frames
+                        print(f"📹 Processed frame {frame_idx + 1}/{real_history_latents.shape[2]}")
+                        
+                except torch.cuda.OutOfMemoryError as frame_e:
+                    print(f"❌ Failed to process frame {frame_idx}: {frame_e}")
+                    # If even single frame fails, we need to abort
+                    raise RuntimeError(f"CUDA OOM on single frame processing - insufficient GPU memory. Frame {frame_idx} failed: {frame_e}")
+            
+            if pixel_frames:
                 history_pixels = torch.cat(pixel_frames, dim=2)
                 del pixel_frames
+                print(f"✅ Successfully recovered using single-frame processing")
+            else:
+                raise RuntimeError("No frames could be processed due to memory constraints")
         
         # Clean up latents
         del real_history_latents
         torch.cuda.empty_cache()
         
-        if not self.high_vram:
-            unload_complete_models()
-            torch.cuda.empty_cache()
+        # Always unload models after VAE operations for maximum memory recovery
+        unload_complete_models()
+        torch.cuda.empty_cache()
         
         # Save intermediate video
         output_filename = os.path.join(settings.OUTPUT_DIR, f'{job_id}_{timestamp}_{total_generated_latent_frames}.mp4')
