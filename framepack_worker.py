@@ -12,7 +12,15 @@ from datetime import datetime
 import time
 
 # Add FramePack to path
-sys.path.append('./FramePack')
+import os
+framepack_path = os.path.abspath('./FramePack')
+if framepack_path not in sys.path:
+    sys.path.insert(0, framepack_path)
+    
+# Also add the current directory to ensure relative imports work
+current_dir = os.path.abspath('.')
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 from diffusers import AutoencoderKLHunyuanVideo
 from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel

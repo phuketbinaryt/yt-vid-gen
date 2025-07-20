@@ -82,6 +82,16 @@ redis-server --daemonize yes --bind 0.0.0.0
 # Wait for Redis to start
 sleep 2
 
+# Verify FramePack installation
+echo "🔍 Verifying FramePack installation..."
+ls -la /workspace/yt-vid-gen/FramePack/
+echo "📁 FramePack contents:"
+ls -la /workspace/yt-vid-gen/FramePack/diffusers_helper/ || echo "diffusers_helper directory not found"
+
+# Set PYTHONPATH to include FramePack
+export PYTHONPATH="/workspace/yt-vid-gen/FramePack:$PYTHONPATH"
+echo "🐍 PYTHONPATH set to: $PYTHONPATH"
+
 # Start the API
 echo "🎬 Starting FramePack API on port 8000..."
 cd /workspace/yt-vid-gen
