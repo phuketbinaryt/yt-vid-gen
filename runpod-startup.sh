@@ -16,6 +16,20 @@ else
     git pull origin main
 fi
 
+# Clone FramePack repository
+echo "📥 Cloning FramePack repository..."
+if [ ! -d "FramePack" ]; then
+    git clone https://github.com/lllyasviel/FramePack.git
+    cd FramePack
+    git checkout main
+    cd ..
+else
+    echo "FramePack already exists, updating..."
+    cd FramePack
+    git pull origin main
+    cd ..
+fi
+
 # Install Python dependencies
 echo "📦 Installing Python dependencies..."
 if [ -f "requirements.txt" ]; then
@@ -27,6 +41,12 @@ fi
 
 # Install PyTorch with CUDA (if not already installed)
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+
+# Install FramePack dependencies
+echo "📦 Installing FramePack dependencies..."
+cd FramePack
+pip install -r requirements.txt
+cd ..
 
 # Setup environment
 cp .env.example .env
