@@ -387,28 +387,117 @@ class FramePackWorker:
         channels = 16
         batch_size = 1
         
-        estimated_tensor_size = batch_size * channels * max_frames * latent_height * latent_width
+        # Calculate latent tensor size
+        latent_tensor_size = batch_size * channels * max_frames * latent_height * latent_width
+        
+        # Calculate VAE decode output tensor size with upsampling factors
+        # VAE decoder applies 8x upsampling (latent -> pixel), so output is width x height
+        # Plus temporal upsampling can increase frame count
+        vae_output_tensor_size = batch_size * 3 * max_frames * height * width  # RGB channels
+        
+        # The VAE internal operations can create even larger intermediate tensors
+        # Account for multiple upsampling stages and intermediate buffers
+        vae_intermediate_factor = 4  # Conservative estimate for intermediate tensor growth
+        max_vae_tensor_size = vae_output_tensor_size * vae_intermediate_factor
+        
         max_int32 = 2**31 - 1
         
-        print(f"🔍 Dimension validation for {aspect_ratio} ({width}x{height}):")
+        print(f"🔍 Comprehensive tensor validation for {aspect_ratio} ({width}x{height}):")
         print(f"   Latent size: {latent_width}x{latent_height}")
-        print(f"   Estimated tensor size: {estimated_tensor_size:,} (max frames: {max_frames})")
+        print(f"   Latent tensor size: {latent_tensor_size:,}")
+        print(f"   VAE output tensor size: {vae_output_tensor_size:,}")
+        print(f"   Max VAE intermediate tensor: {max_vae_tensor_size:,}")
         print(f"   PyTorch int32 limit: {max_int32:,}")
         
-        if estimated_tensor_size > max_int32:
-            # Calculate safe dimensions
-            safe_scale = (max_int32 / estimated_tensor_size) ** 0.5
+        # Check both latent and VAE output tensor sizes
+        if latent_tensor_size > max_int32:
+            safe_scale = (max_int32 / latent_tensor_size) ** 0.5
             safe_width = int((width * safe_scale) // 8) * 8
             safe_height = int((height * safe_scale) // 8) * 8
             
             raise ValueError(
-                f"Aspect ratio '{aspect_ratio}' with dimensions {width}x{height} would create tensors "
-                f"exceeding PyTorch's int32 limit ({estimated_tensor_size:,} > {max_int32:,}). "
+                f"Aspect ratio '{aspect_ratio}' with dimensions {width}x{height} would create latent tensors "
+                f"exceeding PyTorch's int32 limit ({latent_tensor_size:,} > {max_int32:,}). "
                 f"Try using smaller dimensions like {safe_width}x{safe_height} or a different aspect ratio. "
                 f"Recommended safe ratios: 16:9 (1024x576), 9:16 (576x1024), 1:1 (640x640), 4:3 (768x576)"
             )
         
-        print(f"✅ Dimensions {width}x{height} are safe for tensor operations")
+        if max_vae_tensor_size > max_int32:
+            # More aggressive scaling for VAE operations
+            safe_scale = (max_int32 / max_vae_tensor_size) ** 0.5
+            safe_width = int((width * safe_scale) // 8) * 8
+            safe_height = int((height * safe_scale) // 8) * 8
+            
+            raise ValueError(
+                f"Aspect ratio '{aspect_ratio}' with dimensions {width}x{height} would create VAE tensors "
+                f"exceeding PyTorch's int32 limit during decoding ({max_vae_tensor_size:,} > {max_int32:,}). "
+                f"The VAE decoder's internal upsampling operations require much smaller dimensions. "
+                f"Try using dimensions like {safe_width}x{safe_height} or a different aspect ratio. "
+                f"Ultra-safe ratios: 1:1 (512x512), 16:9 (768x432), 9:16 (432x768)"
+            )
+        
+        print(f"✅ Dimensions {width}x{height} are safe for all tensor operations including VAE decoding")
+    
+    def _validate_runtime_tensor_size(self, tensor: torch.Tensor, operation_name: str, safety_factor: float = 4.0):
+        """Validate tensor size at runtime before VAE operations with safety factor for intermediate tensors"""
+        tensor_numel = tensor.numel()
+        max_int32 = 2**31 - 1
+        
+        # Apply safety factor to account for VAE internal operations and upsampling
+        safe_limit = int(max_int32 / safety_factor)
+        
+        print(f"🔍 Runtime tensor validation for {operation_name}:")
+        print(f"   Tensor shape: {tensor.shape}")
+        print(f"   Tensor numel: {tensor_numel:,}")
+        print(f"   Safe limit (with {safety_factor}x factor): {safe_limit:,}")
+        print(f"   PyTorch int32 limit: {max_int32:,}")
+        
+        if tensor_numel > safe_limit:
+            raise RuntimeError(
+                f"Tensor for {operation_name} is too large for safe VAE processing. "
+                f"Tensor size: {tensor_numel:,}, Safe limit: {safe_limit:,} "
+                f"(accounting for {safety_factor}x safety factor for VAE internal operations). "
+                f"This tensor would likely cause PyTorch int32 overflow during VAE decoding. "
+                f"Try using smaller video dimensions or shorter duration."
+            )
+        
+        print(f"✅ Tensor is safe for {operation_name}")
+        return True
+    
+    def _force_single_frame_vae_decode(self, latents: torch.Tensor, vae, operation_name: str):
+        """Force single-frame VAE decoding for oversized tensors"""
+        print(f"🔧 Forcing single-frame VAE decode for {operation_name}")
+        
+        if latents.shape[2] == 1:
+            # Already single frame, validate and decode
+            self._validate_runtime_tensor_size(latents, f"{operation_name} (single frame)", safety_factor=4.0)
+            return vae_decode(latents, vae).cpu()
+        
+        # Process frame by frame
+        pixel_frames = []
+        for frame_idx in range(latents.shape[2]):
+            frame_latent = latents[:, :, frame_idx:frame_idx+1, :, :]
+            
+            # Validate each frame
+            try:
+                self._validate_runtime_tensor_size(frame_latent, f"{operation_name} frame {frame_idx+1}", safety_factor=4.0)
+            except RuntimeError as e:
+                raise RuntimeError(f"Even single frame is too large for VAE processing: {e}")
+            
+            torch.cuda.empty_cache()
+            frame_pixel = vae_decode(frame_latent, vae).cpu()
+            pixel_frames.append(frame_pixel)
+            
+            del frame_pixel, frame_latent
+            torch.cuda.empty_cache()
+            
+            if frame_idx % 3 == 0:
+                print(f"📹 Processed frame {frame_idx + 1}/{latents.shape[2]} for {operation_name}")
+        
+        result = torch.cat(pixel_frames, dim=2)
+        del pixel_frames
+        print(f"✅ Successfully processed {latents.shape[2]} frames using single-frame method")
+        return result
     
     @torch.no_grad()
     def process_job(self, job_id: str):
@@ -809,46 +898,22 @@ class FramePackWorker:
         
         real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
         
-        # Check tensor size to prevent PyTorch int32 overflow
-        tensor_numel = real_history_latents.numel()
-        max_int32 = 2**31 - 1
+        # Use new comprehensive tensor size validation with VAE safety factor
+        try:
+            self._validate_runtime_tensor_size(real_history_latents, "real_history_latents VAE decode", safety_factor=4.0)
+            tensor_is_safe = True
+        except RuntimeError as e:
+            print(f"⚠️ Tensor validation failed: {e}")
+            print(f"🔧 Will use single-frame processing for safety")
+            tensor_is_safe = False
         
-        print(f"🔍 Tensor analysis: shape={real_history_latents.shape}, numel={tensor_numel:,}, max_int32={max_int32:,}")
-        
-        if tensor_numel > max_int32:
-            print(f"⚠️ Tensor size ({tensor_numel:,}) exceeds int32 limit ({max_int32:,}), forcing single-frame processing")
-            # Force single-frame processing for oversized tensors
-            pixel_frames = []
-            for frame_idx in range(real_history_latents.shape[2]):
-                try:
-                    frame_latent = real_history_latents[:, :, frame_idx:frame_idx+1, :, :]
-                    frame_numel = frame_latent.numel()
-                    
-                    if frame_numel > max_int32:
-                        print(f"❌ Single frame ({frame_numel:,}) still exceeds int32 limit - this aspect ratio is too large")
-                        raise RuntimeError(f"Frame tensor size ({frame_numel:,}) exceeds PyTorch int32 limit ({max_int32:,}). "
-                                         f"Try using a smaller aspect ratio or reduce video dimensions.")
-                    
-                    torch.cuda.empty_cache()
-                    frame_pixel = vae_decode(frame_latent, self.vae).cpu()
-                    pixel_frames.append(frame_pixel)
-                    
-                    del frame_pixel, frame_latent
-                    torch.cuda.empty_cache()
-                    
-                    if frame_idx % 5 == 0:
-                        print(f"📹 Processed oversized frame {frame_idx + 1}/{real_history_latents.shape[2]}")
-                        
-                except Exception as e:
-                    print(f"❌ Failed to process oversized frame {frame_idx}: {e}")
-                    raise RuntimeError(f"Failed to process frame {frame_idx} due to tensor size constraints: {e}")
-            
-            if pixel_frames:
-                history_pixels = torch.cat(pixel_frames, dim=2)
-                del pixel_frames
-                print(f"✅ Successfully processed oversized tensor using single-frame method")
-            else:
-                raise RuntimeError("No frames could be processed due to tensor size constraints")
+        if not tensor_is_safe:
+            # Use the new single-frame processing method
+            try:
+                history_pixels = self._force_single_frame_vae_decode(real_history_latents, self.vae, "real_history_latents")
+            except RuntimeError as e:
+                print(f"❌ Single-frame processing also failed: {e}")
+                raise RuntimeError(f"Tensor is too large for any VAE processing method: {e}")
             
             # Clean up and return early
             del real_history_latents
@@ -874,25 +939,23 @@ class FramePackWorker:
                         end_idx = min(i + chunk_size, real_history_latents.shape[2])
                         chunk_latents = real_history_latents[:, :, i:end_idx, :, :]
                         
-                        # Check chunk tensor size
-                        chunk_numel = chunk_latents.numel()
-                        if chunk_numel > max_int32:
-                            print(f"⚠️ Chunk tensor ({chunk_numel:,}) exceeds int32 limit, processing frame by frame")
-                            # Process chunk frame by frame
-                            chunk_pixel_frames = []
-                            for frame_idx in range(chunk_latents.shape[2]):
-                                frame_latent = chunk_latents[:, :, frame_idx:frame_idx+1, :, :]
-                                torch.cuda.empty_cache()
-                                frame_pixel = vae_decode(frame_latent, self.vae).cpu()
-                                chunk_pixel_frames.append(frame_pixel)
-                                del frame_pixel, frame_latent
-                                torch.cuda.empty_cache()
-                            chunk_pixels = torch.cat(chunk_pixel_frames, dim=2)
-                            del chunk_pixel_frames
+                        # Use new comprehensive tensor size validation for chunks
+                        try:
+                            self._validate_runtime_tensor_size(chunk_latents, f"chunk_{i//chunk_size} VAE decode", safety_factor=4.0)
+                            chunk_is_safe = True
+                        except RuntimeError as e:
+                            print(f"⚠️ Chunk {i//chunk_size} tensor validation failed: {e}")
+                            print(f"🔧 Will use single-frame processing for this chunk")
+                            chunk_is_safe = False
+                        
+                        if not chunk_is_safe:
+                            # Use the new single-frame processing method for chunk
+                            chunk_pixels = self._force_single_frame_vae_decode(chunk_latents, self.vae, f"chunk_{i//chunk_size}")
                         else:
                             # Clear cache before each chunk
                             torch.cuda.empty_cache()
                             chunk_pixels = vae_decode(chunk_latents, self.vae).cpu()
+                        
                         pixel_chunks.append(chunk_pixels)
                         
                         # Move chunk to CPU immediately
@@ -903,56 +966,26 @@ class FramePackWorker:
                     history_pixels = torch.cat(pixel_chunks, dim=2)
                     del pixel_chunks
                 else:
-                    # For small sequences, process frame by frame for maximum safety
-                    pixel_frames = []
-                    for frame_idx in range(real_history_latents.shape[2]):
-                        frame_latent = real_history_latents[:, :, frame_idx:frame_idx+1, :, :]
-                        torch.cuda.empty_cache()
-                        frame_pixel = vae_decode(frame_latent, self.vae).cpu()
-                        pixel_frames.append(frame_pixel)
-                        del frame_pixel, frame_latent
-                        torch.cuda.empty_cache()
-                    
-                    history_pixels = torch.cat(pixel_frames, dim=2)
-                    del pixel_frames
+                    # For small sequences, use the new single-frame processing method for maximum safety
+                    history_pixels = self._force_single_frame_vae_decode(real_history_latents, self.vae, "small_sequence")
             else:
                 section_latent_frames = (latent_window_size * 2 + 1) if is_last_section else (latent_window_size * 2)
                 overlapped_frames = latent_window_size * 4 - 3
                 
                 section_latents = real_history_latents[:, :, :section_latent_frames]
                 
-                # Check section_latents tensor size before VAE decoding
-                section_tensor_numel = section_latents.numel()
-                max_int32 = 2**31 - 1
+                # Use new comprehensive tensor size validation for section latents
+                try:
+                    self._validate_runtime_tensor_size(section_latents, "section_latents VAE decode", safety_factor=4.0)
+                    section_is_safe = True
+                except RuntimeError as e:
+                    print(f"⚠️ Section tensor validation failed: {e}")
+                    print(f"🔧 Will use single-frame processing for section")
+                    section_is_safe = False
                 
-                print(f"🔍 Section tensor analysis: shape={section_latents.shape}, numel={section_tensor_numel:,}")
-                
-                if section_tensor_numel > max_int32:
-                    print(f"⚠️ Section tensor size ({section_tensor_numel:,}) exceeds int32 limit, using single-frame processing")
-                    # Process section frame by frame
-                    pixel_frames = []
-                    for frame_idx in range(section_latents.shape[2]):
-                        frame_latent = section_latents[:, :, frame_idx:frame_idx+1, :, :]
-                        frame_numel = frame_latent.numel()
-                        
-                        if frame_numel > max_int32:
-                            print(f"❌ Section frame ({frame_numel:,}) exceeds int32 limit - aspect ratio too large")
-                            raise RuntimeError(f"Frame tensor size ({frame_numel:,}) exceeds PyTorch int32 limit ({max_int32:,}). "
-                                             f"Try using a smaller aspect ratio or reduce video dimensions.")
-                        
-                        torch.cuda.empty_cache()
-                        frame_pixel = vae_decode(frame_latent, self.vae).cpu()
-                        pixel_frames.append(frame_pixel)
-                        
-                        del frame_pixel, frame_latent
-                        torch.cuda.empty_cache()
-                        
-                        if frame_idx % 3 == 0:
-                            print(f"📹 Processed section frame {frame_idx + 1}/{section_latents.shape[2]}")
-                    
-                    current_pixels = torch.cat(pixel_frames, dim=2)
-                    del pixel_frames
-                    print(f"✅ Successfully processed section using single-frame method")
+                if not section_is_safe:
+                    # Use the new single-frame processing method for section
+                    current_pixels = self._force_single_frame_vae_decode(section_latents, self.vae, "section_latents")
                 else:
                     # Clear cache before decoding
                     torch.cuda.empty_cache()
