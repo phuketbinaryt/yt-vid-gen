@@ -61,16 +61,19 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 
 # Install FramePack requirements
 echo "📋 Installing FramePack requirements..."
+# Always install core dependencies first
+pip install diffusers transformers accelerate
+pip install pillow opencv-python av
+pip install numpy scipy einops
+pip install safetensors sentencepiece
+pip install torchsde
+
+# Then install from requirements.txt if it exists
 if [ -f "requirements.txt" ]; then
+    echo "📋 Installing additional requirements from FramePack requirements.txt..."
     pip install -r requirements.txt
 else
-    echo "⚠️ No requirements.txt found in FramePack, installing known dependencies..."
-    # Install known FramePack dependencies
-    pip install diffusers transformers accelerate
-    pip install pillow opencv-python av
-    pip install numpy scipy einops
-    pip install safetensors sentencepiece
-    pip install torchsde
+    echo "⚠️ No requirements.txt found in FramePack"
 fi
 
 # Install attention optimizations
@@ -142,7 +145,13 @@ export PYTHONPATH="/workspace/yt-vid-gen/FramePack:$PYTHONPATH"
 
 # Start Redis server
 echo "🔴 Starting Redis server..."
-redis-server --daemonize yes --bind 0.0.0.0 --port 6379
+if command -v redis-server &> /dev/null; then
+    redis-server --daemonize yes --bind 0.0.0.0 --port 6379
+else
+    echo "⚠️ Redis server not found, installing..."
+    apt install -y redis-server
+    redis-server --daemonize yes --bind 0.0.0.0 --port 6379
+fi
 
 # Wait for Redis to start
 sleep 3
