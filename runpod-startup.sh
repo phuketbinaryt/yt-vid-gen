@@ -22,7 +22,7 @@ if [ -f "requirements.txt" ]; then
     pip install -r requirements.txt
 else
     echo "⚠️ requirements.txt not found, installing basic dependencies..."
-    pip install fastapi uvicorn redis celery pillow requests python-multipart
+    pip install fastapi uvicorn redis celery pillow requests python-multipart pydantic-settings
 fi
 
 # Install PyTorch with CUDA (if not already installed)
