@@ -737,18 +737,25 @@ class FramePackWorker:
                 
                 current_pixels = vae_decode(section_latents, self.vae).cpu()
                 
-                # Fix overlap calculation - ensure overlap doesn't exceed current sequence length
-                # The overlap must be strictly less than the current sequence length
-                max_valid_overlap = current_pixels.shape[2] - 1
+                # Fix overlap calculation - ensure overlap doesn't exceed BOTH sequence lengths
+                # soft_append_bcthw(history, current, overlap) requires:
+                # - history.shape[2] >= overlap (history_pixels in our case)
+                # - current.shape[2] >= overlap (current_pixels in our case)
+                
+                max_valid_overlap_current = current_pixels.shape[2] - 1
+                max_valid_overlap_history = history_pixels.shape[2] - 1
+                max_valid_overlap = min(max_valid_overlap_current, max_valid_overlap_history)
                 actual_overlap = min(overlapped_frames, max_valid_overlap)
                 
-                # Additional safety check: ensure overlap is positive and valid
-                if actual_overlap <= 0 or actual_overlap >= current_pixels.shape[2]:
+                # Additional safety check: ensure overlap is positive and valid for both tensors
+                if (actual_overlap <= 0 or
+                    actual_overlap >= current_pixels.shape[2] or
+                    actual_overlap >= history_pixels.shape[2]):
                     # If no valid overlap possible, just concatenate
-                    print(f"⚠️ Invalid overlap ({actual_overlap}), using concatenation instead. Current frames: {current_pixels.shape[2]}, Requested overlap: {overlapped_frames}")
+                    print(f"⚠️ Invalid overlap ({actual_overlap}), using concatenation instead. Current frames: {current_pixels.shape[2]}, History frames: {history_pixels.shape[2]}, Requested overlap: {overlapped_frames}")
                     history_pixels = torch.cat([history_pixels, current_pixels], dim=2)
                 else:
-                    print(f"✅ Using overlap: {actual_overlap} (current frames: {current_pixels.shape[2]}, requested: {overlapped_frames})")
+                    print(f"✅ Using overlap: {actual_overlap} (current frames: {current_pixels.shape[2]}, history frames: {history_pixels.shape[2]}, requested: {overlapped_frames})")
                     history_pixels = soft_append_bcthw(current_pixels, history_pixels, actual_overlap)
                 
                 # Clean up intermediate tensors
