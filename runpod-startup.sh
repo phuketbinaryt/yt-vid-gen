@@ -39,11 +39,11 @@ else
     pip install fastapi uvicorn redis celery pillow requests python-multipart pydantic-settings
 fi
 
-# Install PyTorch with CUDA (newer version for RTX 5090 support)
-pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+# Install PyTorch nightly with CUDA (latest RTX 5090 support)
+pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
 
 # Install additional required packages for FramePack
-pip install xformers==0.0.28.post3 --index-url https://download.pytorch.org/whl/cu124
+pip install xformers --pre --index-url https://download.pytorch.org/whl/nightly/cu124
 pip install flash-attn --no-build-isolation
 
 # Install FramePack dependencies
@@ -99,6 +99,12 @@ echo "🐍 PYTHONPATH set to: $PYTHONPATH"
 # Set PyTorch memory management for better GPU memory handling
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 echo "🔧 PyTorch CUDA memory configuration set"
+
+# Additional CUDA environment variables for RTX 5090 compatibility
+export CUDA_LAUNCH_BLOCKING=0
+export TORCH_CUDA_ARCH_LIST="5.0;6.0;7.0;7.5;8.0;8.6;9.0;12.0"
+export TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
+echo "🚀 CUDA environment optimized for RTX 5090"
 
 # Start the API
 echo "🎬 Starting FramePack API on port 8000..."
