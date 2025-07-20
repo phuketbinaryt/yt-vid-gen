@@ -39,8 +39,12 @@ else
     pip install fastapi uvicorn redis celery pillow requests python-multipart pydantic-settings
 fi
 
-# Install PyTorch with CUDA (if not already installed)
-pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
+# Install PyTorch with CUDA (compatible version for RunPod)
+pip install torch==2.4.0 torchvision==0.19.0 torchaudio==2.4.0 --index-url https://download.pytorch.org/whl/cu121
+
+# Install additional required packages for FramePack
+pip install xformers==0.0.27.post2 --index-url https://download.pytorch.org/whl/cu121
+pip install flash-attn --no-build-isolation
 
 # Install FramePack dependencies
 echo "📦 Installing FramePack dependencies..."
