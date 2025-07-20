@@ -635,6 +635,14 @@ class FramePackWorker:
             # Generate final output filename
             output_filename = os.path.join(settings.OUTPUT_DIR, f'{job_id}_{timestamp}_final.mp4')
             
+            # Save the final video from history_pixels
+            if history_pixels is not None:
+                print(f"💾 Saving final video: {output_filename}")
+                save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
+                print(f"✅ Final video saved successfully")
+            else:
+                print("⚠️ No history_pixels available for final video")
+            
             # Clean up GPU memory
             if not self.high_vram:
                 unload_complete_models()
