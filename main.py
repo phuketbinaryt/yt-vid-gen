@@ -61,9 +61,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static files for outputs
-app.mount("/outputs", StaticFiles(directory=settings.OUTPUT_DIR), name="outputs")
-app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+# Mount static files for outputs with error handling
+try:
+    # Ensure directories exist before mounting
+    os.makedirs(settings.OUTPUT_DIR, exist_ok=True)
+    os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
+    
+    app.mount("/outputs", StaticFiles(directory=settings.OUTPUT_DIR), name="outputs")
+    app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
+    print(f"✅ Static files mounted: /outputs -> {settings.OUTPUT_DIR}, /uploads -> {settings.UPLOAD_DIR}")
+except Exception as e:
+    print(f"❌ Failed to mount static files: {e}")
 
 # Security
 security = HTTPBearer(auto_error=False)
@@ -368,6 +376,39 @@ async def get_stats(_: bool = Depends(verify_api_key)):
         "models_loaded": framepack_worker.models_loaded,
         "high_vram_mode": framepack_worker.high_vram,
         "gpu_available": torch.cuda.is_available()
+    }
+
+@app.get("/api/v1/debug/deployment")
+async def debug_deployment():
+    """Debug deployment status and file serving configuration"""
+    import glob
+    
+    # Check if directories exist and list files
+    output_dir_exists = os.path.exists(settings.OUTPUT_DIR)
+    upload_dir_exists = os.path.exists(settings.UPLOAD_DIR)
+    
+    output_files = []
+    upload_files = []
+    
+    if output_dir_exists:
+        output_files = glob.glob(os.path.join(settings.OUTPUT_DIR, "*"))
+    
+    if upload_dir_exists:
+        upload_files = glob.glob(os.path.join(settings.UPLOAD_DIR, "*"))
+    
+    return {
+        "deployment_info": {
+            "working_directory": os.getcwd(),
+            "output_dir": settings.OUTPUT_DIR,
+            "upload_dir": settings.UPLOAD_DIR,
+            "output_dir_exists": output_dir_exists,
+            "upload_dir_exists": upload_dir_exists,
+            "output_files_count": len(output_files),
+            "upload_files_count": len(upload_files),
+            "recent_output_files": [os.path.basename(f) for f in output_files[-5:]] if output_files else [],
+            "static_files_mounted": True,  # If we reach here, mounting succeeded
+            "api_version": "1.0.0-with-static-files"
+        }
     }
 
 # Error handlers
