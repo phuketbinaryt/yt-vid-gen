@@ -1,12 +1,31 @@
 #!/bin/bash
 
-# RunPod startup script for FramePack API
-echo "🚀 Starting FramePod API deployment on RunPod..."
+# Clean Ubuntu FramePack API deployment script
+echo "🚀 Starting FramePack API deployment on clean Ubuntu server..."
 
-# Update system
-apt update && apt install -y redis-server curl
+# Update system and install basic dependencies
+echo "📦 Installing system dependencies..."
+apt update && apt upgrade -y
+apt install -y git curl wget build-essential python3-dev python3-pip redis-server
 
-# Clone repository if not exists
+# Install CUDA toolkit if not present (for GPU support)
+echo "🔧 Setting up CUDA environment..."
+if ! command -v nvcc &> /dev/null; then
+    echo "Installing CUDA toolkit..."
+    wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.0-1_all.deb
+    dpkg -i cuda-keyring_1.0-1_all.deb
+    apt update
+    apt install -y cuda-toolkit-12-4
+    export PATH=/usr/local/cuda/bin:$PATH
+    export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+fi
+
+# Set up Python environment
+echo "🐍 Setting up Python environment..."
+python3 -m pip install --upgrade pip setuptools wheel
+
+# Clone our API repository
+echo "📥 Cloning FramePack API repository..."
 if [ ! -d "/workspace/yt-vid-gen" ]; then
     cd /workspace
     git clone https://github.com/phuketbinaryt/yt-vid-gen.git
@@ -16,8 +35,8 @@ else
     git pull origin main
 fi
 
-# Clone FramePack repository
-echo "📥 Cloning FramePack repository..."
+# Clone original FramePack repository
+echo "📥 Cloning original FramePack repository..."
 if [ ! -d "FramePack" ]; then
     git clone https://github.com/lllyasviel/FramePack.git
     cd FramePack
@@ -30,167 +49,155 @@ else
     cd ..
 fi
 
-# Install Python dependencies
-echo "📦 Installing Python dependencies..."
-if [ -f "requirements.txt" ]; then
-    pip install -r requirements.txt
-else
-    echo "⚠️ requirements.txt not found, installing basic dependencies..."
-    pip install fastapi uvicorn redis celery pillow requests python-multipart pydantic-settings
-fi
-
-# Uninstall conflicting packages first
-echo "🧹 Cleaning up conflicting packages..."
-pip uninstall -y gradio torch torchvision torchaudio xformers flash-attn
-
-# Install PyTorch 2.6.0 with exact version matching
-echo "🔥 Installing PyTorch 2.6.0 with exact version matching..."
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --force-reinstall
-
-# Install exact flash-attn version compatible with xformers (2.7.1-2.8.0)
-echo "💫 Installing exact flash-attn version for xformers compatibility..."
-FLASH_ATTN_VERSIONS=("2.8.0" "2.7.1")
-FLASH_ATTN_INSTALLED=false
-
-for version in "${FLASH_ATTN_VERSIONS[@]}"; do
-    echo "🔄 Trying flash-attn==$version..."
-    if pip install flash-attn==$version --no-build-isolation --force-reinstall; then
-        echo "✅ flash-attn $version installed successfully"
-        FLASH_ATTN_INSTALLED=true
-        break
-    else
-        echo "❌ flash-attn $version failed"
-    fi
-done
-
-if [ "$FLASH_ATTN_INSTALLED" = false ]; then
-    echo "❌ All flash-attn versions failed"
-    echo "🔄 Continuing without flash-attn (will use standard attention)"
-    export DISABLE_FLASH_ATTN=1
-fi
-
-# Install correct xformers version for PyTorch 2.6.0
-if [ "$FLASH_ATTN_INSTALLED" = true ]; then
-    echo "⚡ Installing correct xformers version for PyTorch 2.6.0..."
-    # xformers versions compatible with PyTorch 2.6.0
-    XFORMERS_VERSIONS=("0.0.30" "0.0.29" "0.0.28" "0.0.27")
-    XFORMERS_INSTALLED=false
-    
-    for version in "${XFORMERS_VERSIONS[@]}"; do
-        echo "🔄 Trying xformers==$version..."
-        if pip install xformers==$version; then
-            echo "✅ xformers $version installed successfully"
-            XFORMERS_INSTALLED=true
-            break
-        else
-            echo "❌ xformers $version failed"
-        fi
-    done
-    
-    if [ "$XFORMERS_INSTALLED" = false ]; then
-        echo "⚠️ All xformers versions failed, trying pre-built wheel..."
-        # Try installing from pre-built wheel without strict dependency checking
-        if pip install xformers --no-deps --force-reinstall; then
-            echo "✅ xformers installed from pre-built wheel"
-        else
-            echo "❌ All xformers installation methods failed"
-            echo "🔄 Continuing without xformers (will use standard attention)"
-            export DISABLE_XFORMERS=1
-        fi
-    fi
-else
-    echo "⚠️ Installing xformers without flash-attn..."
-    # Try xformers without flash-attn dependency
-    XFORMERS_VERSIONS=("0.0.30" "0.0.29" "0.0.28" "0.0.27")
-    XFORMERS_INSTALLED=false
-    
-    for version in "${XFORMERS_VERSIONS[@]}"; do
-        echo "🔄 Trying xformers==$version (no flash-attn)..."
-        if pip install xformers==$version; then
-            echo "✅ xformers $version installed successfully"
-            XFORMERS_INSTALLED=true
-            break
-        else
-            echo "❌ xformers $version failed"
-        fi
-    done
-    
-    if [ "$XFORMERS_INSTALLED" = false ]; then
-        echo "❌ All xformers versions failed"
-        export DISABLE_XFORMERS=1
-    fi
-fi
-
-# Install FramePack dependencies
-echo "📦 Installing FramePack dependencies..."
+# Install FramePack dependencies following official requirements
+echo "📦 Installing FramePack dependencies from official repository..."
 cd FramePack
-pip install -r requirements.txt
+
+# Install PyTorch with CUDA support (following FramePack requirements)
+echo "🔥 Installing PyTorch with CUDA support..."
+pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+
+# Install FramePack requirements
+echo "📋 Installing FramePack requirements..."
+if [ -f "requirements.txt" ]; then
+    pip3 install -r requirements.txt
+else
+    echo "⚠️ No requirements.txt found in FramePack, installing known dependencies..."
+    # Install known FramePack dependencies
+    pip3 install diffusers transformers accelerate
+    pip3 install pillow opencv-python av
+    pip3 install numpy scipy einops
+    pip3 install safetensors sentencepiece
+    pip3 install torchsde
+fi
+
+# Install attention optimizations
+echo "⚡ Installing attention optimizations..."
+pip3 install xformers
+pip3 install flash-attn --no-build-isolation
+
 cd ..
 
-# Setup environment
-cp .env.example .env
+# Install our API dependencies
+echo "🌐 Installing API dependencies..."
+pip3 install fastapi uvicorn redis celery
+pip3 install pydantic pydantic-settings
+pip3 install python-multipart aiofiles
+pip3 install starlette httpx requests
+pip3 install python-dotenv
 
-# Configure for RunPod
+# Create environment configuration
+echo "⚙️ Setting up environment configuration..."
 cat > .env << EOF
-# RunPod Configuration
+# FramePack API Configuration
 API_HOST=0.0.0.0
 API_PORT=8000
 REDIS_URL=redis://localhost:6379/0
 
-# GPU Configuration (auto-detect)
+# GPU Configuration
 GPU_DEVICE=cuda:0
 HIGH_VRAM_THRESHOLD=20.0
 MAX_CONCURRENT_JOBS=2
 GPU_MEMORY_PRESERVATION=6.0
+
+# Model Paths (using HuggingFace cache)
+HUNYUAN_MODEL_PATH=hunyuanvideo-community/HunyuanVideo
+FLUX_REDUX_MODEL_PATH=black-forest-labs/FLUX.1-Redux-dev
+FRAMEPACK_MODEL_PATH=lllyasviel/FramePack
+FRAMEPACK_F1_MODEL_PATH=lllyasviel/FramePack-F1
 
 # File Storage
 UPLOAD_DIR=/workspace/uploads
 OUTPUT_DIR=/workspace/outputs
 TEMP_DIR=/workspace/temp
 
+# Performance Settings
+DEFAULT_DURATION=5
+DEFAULT_STEPS=30
+DEFAULT_CFG_SCALE=7.0
+DEFAULT_DISTILLED_CFG_SCALE=3.5
+DEFAULT_CFG_RESCALE=0.7
+DEFAULT_SEED=42
+DEFAULT_MP4_CRF=18
+DEFAULT_LATENT_WINDOW_SIZE=16
+
 # Optional API Key (uncomment to enable)
 # API_KEY=your-secret-key-here
 EOF
 
-# Create directories
+# Create necessary directories
+echo "📁 Creating directories..."
 mkdir -p /workspace/uploads /workspace/outputs /workspace/temp
 
-# Start Redis
-redis-server --daemonize yes --bind 0.0.0.0
+# Set up HuggingFace cache
+echo "🤗 Setting up HuggingFace cache..."
+export HF_HOME=/workspace/hf_cache
+mkdir -p $HF_HOME
+
+# Set Python path for FramePack modules
+echo "🐍 Setting up Python path..."
+export PYTHONPATH="/workspace/yt-vid-gen/FramePack:$PYTHONPATH"
+
+# Start Redis server
+echo "🔴 Starting Redis server..."
+redis-server --daemonize yes --bind 0.0.0.0 --port 6379
 
 # Wait for Redis to start
-sleep 2
+sleep 3
 
-# Verify FramePack installation
-echo "🔍 Verifying FramePack installation..."
-ls -la /workspace/yt-vid-gen/FramePack/
-echo "📁 FramePack contents:"
-ls -la /workspace/yt-vid-gen/FramePack/diffusers_helper/ || echo "diffusers_helper directory not found"
-
-# Set PYTHONPATH to include FramePack
-export PYTHONPATH="/workspace/yt-vid-gen/FramePack:$PYTHONPATH"
-echo "🐍 PYTHONPATH set to: $PYTHONPATH"
-
-# Set PyTorch memory management for better GPU memory handling
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-echo "🔧 PyTorch CUDA memory configuration set"
-
-# Additional CUDA environment variables for RTX 5090 compatibility
-export CUDA_LAUNCH_BLOCKING=0
-export TORCH_CUDA_ARCH_LIST="5.0;6.0;7.0;7.5;8.0;8.6;9.0;12.0"
-export TORCH_ALLOW_TF32_CUBLAS_OVERRIDE=1
-echo "🚀 CUDA environment optimized for RTX 5090"
-
-# Start the API
-echo "🎬 Starting FramePack API on port 8000..."
+# Test FramePack installation
+echo "🧪 Testing FramePack installation..."
 cd /workspace/yt-vid-gen
-python main.py &
+python3 -c "
+import sys
+sys.path.insert(0, './FramePack')
+try:
+    import torch
+    print(f'✅ PyTorch {torch.__version__} with CUDA: {torch.cuda.is_available()}')
+    
+    from diffusers import AutoencoderKLHunyuanVideo
+    print('✅ Diffusers import successful')
+    
+    from transformers import LlamaModel, CLIPTextModel
+    print('✅ Transformers import successful')
+    
+    # Test FramePack modules
+    from diffusers_helper.hunyuan import encode_prompt_conds
+    print('✅ FramePack diffusers_helper import successful')
+    
+    print('🎉 All imports successful!')
+    
+except Exception as e:
+    print(f'❌ Import error: {e}')
+    sys.exit(1)
+"
 
-# Keep container running
+if [ $? -eq 0 ]; then
+    echo "✅ FramePack installation test passed!"
+else
+    echo "❌ FramePack installation test failed!"
+    exit 1
+fi
+
+# Start the API server
+echo "🎬 Starting FramePack API server..."
+cd /workspace/yt-vid-gen
+
+# Start Celery worker in background
+echo "👷 Starting Celery worker..."
+celery -A framepack_worker worker --loglevel=info --concurrency=1 &
+
+# Start FastAPI server
+echo "🌐 Starting FastAPI server..."
+python3 main.py &
+
+# Keep container running and show logs
 echo "✅ FramePack API is running!"
 echo "📡 API URL: http://localhost:8000"
 echo "📚 Documentation: http://localhost:8000/docs"
 echo "❤️ Health Check: http://localhost:8000/health"
+echo ""
+echo "🔍 Monitoring logs..."
 
-# Show logs
+# Show real-time logs
 tail -f /dev/null
