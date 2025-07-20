@@ -214,6 +214,10 @@ fi
 echo "🐍 Setting up Python path..."
 export PYTHONPATH="/workspace/yt-vid-gen/FramePack:$PYTHONPATH"
 
+# Set PyTorch CUDA memory allocation configuration for better memory management
+echo "🔧 Configuring PyTorch CUDA memory management..."
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+
 # Start Redis server
 echo "🔴 Starting Redis server..."
 if command -v redis-server &> /dev/null; then
