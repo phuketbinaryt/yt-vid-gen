@@ -244,10 +244,18 @@ class FramePackWorker:
             if not self.high_vram:
                 fake_diffusers_current_device(self.text_encoder, gpu)
                 load_model_as_complete(self.text_encoder_2, target_device=gpu)
+            else:
+                # Ensure models are on GPU for high VRAM mode
+                self.text_encoder.to(gpu)
+                self.text_encoder_2.to(gpu)
             
             llama_vec, clip_l_pooler = encode_prompt_conds(
                 prompt, self.text_encoder, self.text_encoder_2, self.tokenizer, self.tokenizer_2
             )
+            
+            # Ensure tensors are on the correct device
+            llama_vec = llama_vec.to(gpu)
+            clip_l_pooler = clip_l_pooler.to(gpu)
             
             # Negative prompt encoding
             if cfg == 1:
@@ -256,9 +264,18 @@ class FramePackWorker:
                 llama_vec_n, clip_l_pooler_n = encode_prompt_conds(
                     "", self.text_encoder, self.text_encoder_2, self.tokenizer, self.tokenizer_2
                 )
+                # Ensure negative prompt tensors are on the correct device
+                llama_vec_n = llama_vec_n.to(gpu)
+                clip_l_pooler_n = clip_l_pooler_n.to(gpu)
             
             llama_vec, llama_attention_mask = crop_or_pad_yield_mask(llama_vec, length=512)
             llama_vec_n, llama_attention_mask_n = crop_or_pad_yield_mask(llama_vec_n, length=512)
+            
+            # Ensure all tensors are on GPU
+            llama_vec = llama_vec.to(gpu)
+            llama_vec_n = llama_vec_n.to(gpu)
+            llama_attention_mask = llama_attention_mask.to(gpu)
+            llama_attention_mask_n = llama_attention_mask_n.to(gpu)
             
             # Image processing
             job_manager.update_progress(job_id, 15.0, "Processing image...")
@@ -273,24 +290,29 @@ class FramePackWorker:
             Image.fromarray(input_image_np).save(input_filename)
             
             input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
-            input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
+            input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None].to(gpu)
             
             # VAE encoding
             job_manager.update_progress(job_id, 20.0, "VAE encoding...")
             
             if not self.high_vram:
                 load_model_as_complete(self.vae, target_device=gpu)
+            else:
+                self.vae.to(gpu)
             
             start_latent = vae_encode(input_image_pt, self.vae)
+            start_latent = start_latent.to(gpu)
             
             # CLIP Vision encoding
             job_manager.update_progress(job_id, 25.0, "CLIP Vision encoding...")
             
             if not self.high_vram:
                 load_model_as_complete(self.image_encoder, target_device=gpu)
+            else:
+                self.image_encoder.to(gpu)
             
             image_encoder_output = hf_clip_vision_encode(input_image_np, self.feature_extractor, self.image_encoder)
-            image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+            image_encoder_last_hidden_state = image_encoder_output.last_hidden_state.to(gpu)
             
             # Convert to correct dtypes
             llama_vec = llama_vec.to(transformer.dtype)
