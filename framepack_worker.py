@@ -1,5 +1,6 @@
 import os
 import sys
+from typing import Tuple
 
 # Set PyTorch CUDA memory allocation configuration for better memory management
 os.environ['PYTORCH_CUDA_ALLOC_CONF'] = 'expandable_segments:True'
@@ -310,7 +311,7 @@ class FramePackWorker:
         image = np.ones((height, width, 3), dtype=np.uint8) * 128  # Gray background
         return image
     
-    def parse_aspect_ratio(self, aspect_ratio: str, base_resolution: int = 640) -> tuple[int, int]:
+    def parse_aspect_ratio(self, aspect_ratio: str, base_resolution: int = 640) -> Tuple[int, int]:
         """Convert aspect ratio string to width/height dimensions"""
         # Predefined optimized ratios for FramePack
         predefined_ratios = {
