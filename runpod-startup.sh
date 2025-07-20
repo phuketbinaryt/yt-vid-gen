@@ -47,31 +47,78 @@ pip uninstall -y gradio torch torchvision torchaudio xformers flash-attn
 echo "🔥 Installing PyTorch 2.6.0 with exact version matching..."
 pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --force-reinstall
 
-# Install compatible flash-attn version first (before xformers)
-echo "💫 Installing compatible flash-attn version..."
-if pip install flash-attn==2.8.0 --no-build-isolation; then
-    echo "✅ flash-attn 2.8.0 installed successfully"
-    FLASH_ATTN_INSTALLED=true
-else
-    echo "⚠️ flash-attn 2.8.0 installation failed, trying 2.7.1..."
-    if pip install flash-attn==2.7.1 --no-build-isolation; then
-        echo "✅ flash-attn 2.7.1 installed successfully"
+# Install exact flash-attn version compatible with xformers (2.7.1-2.8.0)
+echo "💫 Installing exact flash-attn version for xformers compatibility..."
+FLASH_ATTN_VERSIONS=("2.8.0" "2.7.1")
+FLASH_ATTN_INSTALLED=false
+
+for version in "${FLASH_ATTN_VERSIONS[@]}"; do
+    echo "🔄 Trying flash-attn==$version..."
+    if pip install flash-attn==$version --no-build-isolation --force-reinstall; then
+        echo "✅ flash-attn $version installed successfully"
         FLASH_ATTN_INSTALLED=true
+        break
     else
-        echo "❌ flash-attn installation failed completely"
-        echo "🔄 Continuing without flash-attn (will use standard attention)"
-        export DISABLE_FLASH_ATTN=1
-        FLASH_ATTN_INSTALLED=false
+        echo "❌ flash-attn $version failed"
     fi
+done
+
+if [ "$FLASH_ATTN_INSTALLED" = false ]; then
+    echo "❌ All flash-attn versions failed"
+    echo "🔄 Continuing without flash-attn (will use standard attention)"
+    export DISABLE_FLASH_ATTN=1
 fi
 
-# Install xformers only if flash-attn is working
+# Install correct xformers version for PyTorch 2.6.0
 if [ "$FLASH_ATTN_INSTALLED" = true ]; then
-    echo "⚡ Installing xformers with flash-attn support..."
-    pip install xformers
+    echo "⚡ Installing correct xformers version for PyTorch 2.6.0..."
+    # xformers versions compatible with PyTorch 2.6.0
+    XFORMERS_VERSIONS=("0.0.30" "0.0.29" "0.0.28" "0.0.27")
+    XFORMERS_INSTALLED=false
+    
+    for version in "${XFORMERS_VERSIONS[@]}"; do
+        echo "🔄 Trying xformers==$version..."
+        if pip install xformers==$version; then
+            echo "✅ xformers $version installed successfully"
+            XFORMERS_INSTALLED=true
+            break
+        else
+            echo "❌ xformers $version failed"
+        fi
+    done
+    
+    if [ "$XFORMERS_INSTALLED" = false ]; then
+        echo "⚠️ All xformers versions failed, trying pre-built wheel..."
+        # Try installing from pre-built wheel without strict dependency checking
+        if pip install xformers --no-deps --force-reinstall; then
+            echo "✅ xformers installed from pre-built wheel"
+        else
+            echo "❌ All xformers installation methods failed"
+            echo "🔄 Continuing without xformers (will use standard attention)"
+            export DISABLE_XFORMERS=1
+        fi
+    fi
 else
-    echo "⚠️ Skipping xformers installation due to flash-attn issues"
-    export DISABLE_XFORMERS=1
+    echo "⚠️ Installing xformers without flash-attn..."
+    # Try xformers without flash-attn dependency
+    XFORMERS_VERSIONS=("0.0.30" "0.0.29" "0.0.28" "0.0.27")
+    XFORMERS_INSTALLED=false
+    
+    for version in "${XFORMERS_VERSIONS[@]}"; do
+        echo "🔄 Trying xformers==$version (no flash-attn)..."
+        if pip install xformers==$version; then
+            echo "✅ xformers $version installed successfully"
+            XFORMERS_INSTALLED=true
+            break
+        else
+            echo "❌ xformers $version failed"
+        fi
+    done
+    
+    if [ "$XFORMERS_INSTALLED" = false ]; then
+        echo "❌ All xformers versions failed"
+        export DISABLE_XFORMERS=1
+    fi
 fi
 
 # Install FramePack dependencies
