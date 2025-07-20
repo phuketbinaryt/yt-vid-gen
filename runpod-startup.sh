@@ -43,29 +43,35 @@ fi
 echo "🧹 Cleaning up conflicting packages..."
 pip uninstall -y gradio torch torchvision torchaudio xformers flash-attn
 
-# Install PyTorch 2.6.0 (standard version, meets FramePack 2.6+ requirement)
-echo "🔥 Installing PyTorch 2.6.0..."
-pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0
+# Install PyTorch 2.6.0 with exact version matching
+echo "🔥 Installing PyTorch 2.6.0 with exact version matching..."
+pip install torch==2.6.0 torchvision==0.21.0 torchaudio==2.6.0 --force-reinstall
 
-# Install xformers (will auto-detect CUDA version)
-echo "⚡ Installing xformers..."
-pip install xformers
-
-# Try to install flash-attn with fallback
-echo "💫 Attempting to install flash-attn..."
-if pip install flash-attn --no-build-isolation; then
-    echo "✅ flash-attn installed successfully"
+# Install compatible flash-attn version first (before xformers)
+echo "💫 Installing compatible flash-attn version..."
+if pip install flash-attn==2.8.0 --no-build-isolation; then
+    echo "✅ flash-attn 2.8.0 installed successfully"
+    FLASH_ATTN_INSTALLED=true
 else
-    echo "⚠️ flash-attn installation failed, trying alternative approach..."
-    # Try installing from source with specific flags
-    if pip install flash-attn --no-build-isolation --no-cache-dir; then
-        echo "✅ flash-attn installed from source"
+    echo "⚠️ flash-attn 2.8.0 installation failed, trying 2.7.1..."
+    if pip install flash-attn==2.7.1 --no-build-isolation; then
+        echo "✅ flash-attn 2.7.1 installed successfully"
+        FLASH_ATTN_INSTALLED=true
     else
         echo "❌ flash-attn installation failed completely"
         echo "🔄 Continuing without flash-attn (will use standard attention)"
-        # Set environment variable to disable flash attention
         export DISABLE_FLASH_ATTN=1
+        FLASH_ATTN_INSTALLED=false
     fi
+fi
+
+# Install xformers only if flash-attn is working
+if [ "$FLASH_ATTN_INSTALLED" = true ]; then
+    echo "⚡ Installing xformers with flash-attn support..."
+    pip install xformers
+else
+    echo "⚠️ Skipping xformers installation due to flash-attn issues"
+    export DISABLE_XFORMERS=1
 fi
 
 # Install FramePack dependencies

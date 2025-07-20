@@ -20,6 +20,16 @@ if os.environ.get('DISABLE_FLASH_ATTN'):
     transformers.utils.import_utils.is_flash_attn_2_available = lambda: False
     transformers.utils.import_utils.is_flash_attn_available = lambda: False
 
+# Disable xformers if environment variable is set
+if os.environ.get('DISABLE_XFORMERS'):
+    print("⚠️ xformers disabled via environment variable")
+    # Monkey patch to disable xformers in diffusers
+    try:
+        import diffusers.utils.import_utils
+        diffusers.utils.import_utils.is_xformers_available = lambda: False
+    except ImportError:
+        pass
+
 # Add FramePack to path
 import os
 framepack_path = os.path.abspath('./FramePack')
@@ -31,13 +41,14 @@ current_dir = os.path.abspath('.')
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-# Try importing with flash-attn fallback
+# Try importing with flash-attn and xformers fallback
 try:
     from diffusers import AutoencoderKLHunyuanVideo
     from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel
     print("✅ Successfully imported diffusers and transformers")
 except ImportError as e:
-    if "flash_attn" in str(e):
+    error_str = str(e).lower()
+    if "flash_attn" in error_str or "flash-attention" in error_str:
         print("⚠️ Flash attention import failed, disabling and retrying...")
         # Disable flash attention and retry
         os.environ['DISABLE_FLASH_ATTN'] = '1'
@@ -45,9 +56,32 @@ except ImportError as e:
         transformers.utils.import_utils.is_flash_attn_2_available = lambda: False
         transformers.utils.import_utils.is_flash_attn_available = lambda: False
         
+        try:
+            from diffusers import AutoencoderKLHunyuanVideo
+            from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel
+            print("✅ Successfully imported with flash attention disabled")
+        except ImportError as e2:
+            if "xformers" in str(e2).lower():
+                print("⚠️ xformers import also failed, disabling both and retrying...")
+                os.environ['DISABLE_XFORMERS'] = '1'
+                import diffusers.utils.import_utils
+                diffusers.utils.import_utils.is_xformers_available = lambda: False
+                
+                from diffusers import AutoencoderKLHunyuanVideo
+                from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel
+                print("✅ Successfully imported with both flash attention and xformers disabled")
+            else:
+                raise
+    elif "xformers" in error_str:
+        print("⚠️ xformers import failed, disabling and retrying...")
+        # Disable xformers and retry
+        os.environ['DISABLE_XFORMERS'] = '1'
+        import diffusers.utils.import_utils
+        diffusers.utils.import_utils.is_xformers_available = lambda: False
+        
         from diffusers import AutoencoderKLHunyuanVideo
         from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel
-        print("✅ Successfully imported with flash attention disabled")
+        print("✅ Successfully imported with xformers disabled")
     else:
         raise
 
