@@ -17,7 +17,13 @@ else
 fi
 
 # Install Python dependencies
-pip install -r requirements.txt
+echo "📦 Installing Python dependencies..."
+if [ -f "requirements.txt" ]; then
+    pip install -r requirements.txt
+else
+    echo "⚠️ requirements.txt not found, installing basic dependencies..."
+    pip install fastapi uvicorn redis celery pillow requests python-multipart
+fi
 
 # Install PyTorch with CUDA (if not already installed)
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu121
@@ -58,6 +64,7 @@ sleep 2
 
 # Start the API
 echo "🎬 Starting FramePack API on port 8000..."
+cd /workspace/yt-vid-gen
 python main.py &
 
 # Keep container running
