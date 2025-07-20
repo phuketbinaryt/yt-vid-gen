@@ -92,6 +92,10 @@ ls -la /workspace/yt-vid-gen/FramePack/diffusers_helper/ || echo "diffusers_help
 export PYTHONPATH="/workspace/yt-vid-gen/FramePack:$PYTHONPATH"
 echo "🐍 PYTHONPATH set to: $PYTHONPATH"
 
+# Set PyTorch memory management for better GPU memory handling
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+echo "🔧 PyTorch CUDA memory configuration set"
+
 # Start the API
 echo "🎬 Starting FramePack API on port 8000..."
 cd /workspace/yt-vid-gen

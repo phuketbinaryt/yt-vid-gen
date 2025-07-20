@@ -59,6 +59,9 @@ class FramePackWorker:
             print(f'Free VRAM: {free_mem_gb} GB')
             print(f'High-VRAM Mode: {self.high_vram}')
             
+            # Clear any existing GPU memory
+            torch.cuda.empty_cache()
+            
             # Load text encoders and tokenizers
             self.text_encoder = LlamaModel.from_pretrained(
                 settings.HUNYUAN_MODEL_PATH, 
@@ -145,19 +148,17 @@ class FramePackWorker:
             self.transformer.requires_grad_(False)
             self.transformer_f1.requires_grad_(False)
             
-            # Setup memory management for low VRAM
-            if not self.high_vram:
-                DynamicSwapInstaller.install_model(self.transformer, device=gpu)
-                DynamicSwapInstaller.install_model(self.transformer_f1, device=gpu)
-                DynamicSwapInstaller.install_model(self.text_encoder, device=gpu)
-            else:
-                # Load all models to GPU for high VRAM
-                self.text_encoder.to(gpu)
-                self.text_encoder_2.to(gpu)
-                self.image_encoder.to(gpu)
-                self.vae.to(gpu)
-                self.transformer.to(gpu)
-                self.transformer_f1.to(gpu)
+            # Setup memory management - always use low VRAM mode for better stability
+            print("Setting up dynamic memory management...")
+            DynamicSwapInstaller.install_model(self.transformer, device=gpu)
+            DynamicSwapInstaller.install_model(self.transformer_f1, device=gpu)
+            DynamicSwapInstaller.install_model(self.text_encoder, device=gpu)
+            DynamicSwapInstaller.install_model(self.text_encoder_2, device=gpu)
+            DynamicSwapInstaller.install_model(self.image_encoder, device=gpu)
+            DynamicSwapInstaller.install_model(self.vae, device=gpu)
+            
+            # Don't load any models to GPU initially - they'll be loaded on demand
+            print("Models configured for on-demand loading")
             
             self.models_loaded = True
             print("FramePack models loaded successfully!")
