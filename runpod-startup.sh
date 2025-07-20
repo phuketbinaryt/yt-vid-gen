@@ -68,9 +68,14 @@ pip install numpy scipy einops
 pip install safetensors sentencepiece
 pip install torchsde
 
-# Then install from requirements.txt if it exists
+# Then install from requirements.txt if it exists, but fix problematic versions
 if [ -f "requirements.txt" ]; then
     echo "📋 Installing additional requirements from FramePack requirements.txt..."
+    # Fix accelerate version issue - replace 1.6.0 with 1.0.1 if it exists
+    if grep -q "accelerate==1.6.0" requirements.txt; then
+        echo "🔧 Fixing accelerate version from 1.6.0 to 1.0.1..."
+        sed -i 's/accelerate==1.6.0/accelerate==1.0.1/g' requirements.txt
+    fi
     pip install -r requirements.txt
 else
     echo "⚠️ No requirements.txt found in FramePack"
@@ -145,6 +150,10 @@ mkdir -p /workspace/uploads /workspace/outputs /workspace/temp
 echo "🤗 Setting up HuggingFace cache..."
 export HF_HOME=/workspace/hf_cache
 mkdir -p $HF_HOME
+
+# Setup git credential helper to avoid warnings
+echo "🔧 Setting up git credential helper..."
+git config --global credential.helper store
 
 # Setup Hugging Face authentication
 echo "🔐 Setting up Hugging Face authentication..."
