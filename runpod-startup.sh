@@ -42,13 +42,13 @@ fi
 # Uninstall conflicting packages first
 pip uninstall -y gradio torch torchvision torchaudio xformers flash-attn
 
-# Install PyTorch 2.8 with CUDA 12.4 (latest stable with full RTX 5090 support)
-pip install torch==2.8.0+cu124 torchvision==0.23.0+cu124 torchaudio==2.8.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+# Install PyTorch 2.6.0 with CUDA 12.4 (latest available, meets FramePack 2.6+ requirement)
+pip install torch==2.6.0+cu124 torchvision==0.21.0+cu124 torchaudio==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
 
-# Install latest xformers compatible with PyTorch 2.8
+# Install latest xformers compatible with PyTorch 2.6
 pip install xformers --index-url https://download.pytorch.org/whl/cu124
 
-# Install flash-attn (should work better with PyTorch 2.8)
+# Install flash-attn (should work better with PyTorch 2.6)
 pip install flash-attn --no-build-isolation
 
 # Install FramePack dependencies
