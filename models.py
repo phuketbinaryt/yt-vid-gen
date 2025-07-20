@@ -25,6 +25,7 @@ class VideoGenerationRequest(BaseModel):
     
     # Video parameters
     duration: float = Field(default=5.0, ge=0.1, le=120.0, description="Video duration in seconds")
+    aspect_ratio: Optional[str] = Field(None, description="Video aspect ratio (e.g., '16:9', '9:16', '1:1', '4:3', '21:9')")
     seed: int = Field(default=31337, description="Random seed for reproducible results")
     
     # Advanced parameters
@@ -42,6 +43,32 @@ class VideoGenerationRequest(BaseModel):
     
     # Model selection
     use_f1_model: bool = Field(default=False, description="Use FramePack-F1 model instead of standard")
+    
+    @validator('aspect_ratio')
+    def validate_aspect_ratio(cls, v):
+        if v is None:
+            return v
+        
+        # Supported aspect ratios
+        supported_ratios = {
+            "16:9", "9:16", "1:1", "4:3", "3:2", "21:9", "2.35:1", "2:3", "3:4"
+        }
+        
+        if v in supported_ratios:
+            return v
+        
+        # Try to parse custom ratio like "16:9"
+        try:
+            parts = v.split(':')
+            if len(parts) == 2:
+                w_ratio = float(parts[0])
+                h_ratio = float(parts[1])
+                if w_ratio > 0 and h_ratio > 0:
+                    return v
+        except (ValueError, IndexError):
+            pass
+        
+        raise ValueError(f"Invalid aspect ratio '{v}'. Supported ratios: {', '.join(sorted(supported_ratios))} or custom format like '16:9'")
     
     @validator('image_url')
     def validate_image_inputs(cls, v, values):

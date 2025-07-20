@@ -310,6 +310,63 @@ class FramePackWorker:
         image = np.ones((height, width, 3), dtype=np.uint8) * 128  # Gray background
         return image
     
+    def parse_aspect_ratio(self, aspect_ratio: str, base_resolution: int = 640) -> tuple[int, int]:
+        """Convert aspect ratio string to width/height dimensions"""
+        # Predefined optimized ratios for FramePack
+        predefined_ratios = {
+            "16:9": (1024, 576),    # Landscape/YouTube
+            "9:16": (576, 1024),    # Portrait/TikTok/Instagram Stories
+            "1:1": (640, 640),      # Square/Instagram Posts
+            "4:3": (768, 576),      # Traditional TV
+            "3:2": (768, 512),      # Photography standard
+            "2:3": (512, 768),      # Portrait photography
+            "3:4": (576, 768),      # Portrait traditional
+            "21:9": (1344, 576),    # Ultra-wide cinematic
+            "2.35:1": (1200, 512),  # Anamorphic widescreen
+        }
+        
+        # Check if it's a predefined ratio
+        if aspect_ratio in predefined_ratios:
+            return predefined_ratios[aspect_ratio]
+        
+        # Parse custom ratio like "16:9" or "2.35:1"
+        try:
+            if ':' in aspect_ratio:
+                w_ratio, h_ratio = map(float, aspect_ratio.split(':'))
+            else:
+                # Handle decimal format like "2.35"
+                w_ratio = float(aspect_ratio)
+                h_ratio = 1.0
+            
+            # Calculate dimensions maintaining ratio
+            if w_ratio >= h_ratio:
+                # Landscape or square
+                width = base_resolution
+                height = int(base_resolution * h_ratio / w_ratio)
+            else:
+                # Portrait
+                height = base_resolution
+                width = int(base_resolution * w_ratio / h_ratio)
+            
+            # Ensure dimensions are divisible by 8 (required by FramePack)
+            width = max(256, (width // 8) * 8)
+            height = max(256, (height // 8) * 8)
+            
+            # Ensure dimensions don't exceed reasonable limits
+            max_dimension = 1920
+            if width > max_dimension or height > max_dimension:
+                scale_factor = min(max_dimension / width, max_dimension / height)
+                width = int(width * scale_factor)
+                height = int(height * scale_factor)
+                # Re-align to 8-pixel boundaries
+                width = (width // 8) * 8
+                height = (height // 8) * 8
+            
+            return width, height
+            
+        except (ValueError, ZeroDivisionError):
+            raise ValueError(f"Invalid aspect ratio format: {aspect_ratio}")
+    
     @torch.no_grad()
     def process_job(self, job_id: str):
         """Process a video generation job"""
@@ -328,6 +385,7 @@ class FramePackWorker:
             prompt = request_data['prompt']
             mode = request_data.get('mode', GenerationMode.IMAGE_TO_VIDEO)
             duration = request_data.get('duration', settings.DEFAULT_DURATION)
+            aspect_ratio = request_data.get('aspect_ratio')
             seed = request_data.get('seed', settings.DEFAULT_SEED)
             steps = request_data.get('steps', settings.DEFAULT_STEPS)
             cfg = request_data.get('cfg_scale', settings.DEFAULT_CFG_SCALE)
@@ -410,8 +468,17 @@ class FramePackWorker:
             # Image processing
             job_manager.update_progress(job_id, 15.0, "Processing image...")
             
-            H, W, C = input_image.shape
-            height, width = find_nearest_bucket(H, W, resolution=640)
+            # Determine video dimensions
+            if aspect_ratio:
+                # Use specified aspect ratio
+                width, height = self.parse_aspect_ratio(aspect_ratio)
+                print(f"📐 Using aspect ratio {aspect_ratio}: {width}x{height}")
+            else:
+                # Auto-detect from input image (legacy behavior)
+                H, W, C = input_image.shape
+                height, width = find_nearest_bucket(H, W, resolution=640)
+                print(f"📐 Auto-detected dimensions from input image: {width}x{height}")
+            
             input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
             
             # Save input image
@@ -655,9 +722,12 @@ class FramePackWorker:
                 "frames_generated": max(0, total_generated_latent_frames * 4 - 3),
                 "video_length": max(0, (total_generated_latent_frames * 4 - 3) / 30),
                 "model_used": "FramePack-F1" if use_f1_model else "FramePack",
+                "video_dimensions": f"{width}x{height}",
+                "aspect_ratio_used": aspect_ratio if aspect_ratio else "auto-detected",
                 "parameters": {
                     "prompt": prompt,
                     "mode": mode,
+                    "aspect_ratio": aspect_ratio,
                     "seed": seed,
                     "steps": steps,
                     "cfg_scale": cfg,
