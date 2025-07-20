@@ -736,7 +736,14 @@ class FramePackWorker:
                 torch.cuda.empty_cache()
                 
                 current_pixels = vae_decode(section_latents, self.vae).cpu()
-                history_pixels = soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
+                
+                # Fix overlap calculation - ensure overlap doesn't exceed current sequence length
+                actual_overlap = min(overlapped_frames, current_pixels.shape[2] - 1)
+                if actual_overlap <= 0:
+                    # If no valid overlap, just concatenate
+                    history_pixels = torch.cat([history_pixels, current_pixels], dim=2)
+                else:
+                    history_pixels = soft_append_bcthw(current_pixels, history_pixels, actual_overlap)
                 
                 # Clean up intermediate tensors
                 del current_pixels, section_latents
