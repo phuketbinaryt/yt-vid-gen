@@ -87,9 +87,21 @@ if [ -f "requirements.txt" ]; then
         sed -i 's/accelerate==1.6.0/accelerate==1.0.1/g' requirements.txt
     fi
     
+    # Fix gradio version issues - replace 5.x.x with latest 4.x.x
+    if grep -q "gradio==5\." requirements.txt; then
+        echo "🔧 Fixing gradio version from 5.x.x to 4.44.1..."
+        sed -i 's/gradio==5\.[0-9]*\.[0-9]*/gradio==4.44.1/g' requirements.txt
+    fi
+    
+    # Fix any other common version issues
+    if grep -q "gradio==5.23.0" requirements.txt; then
+        echo "🔧 Fixing gradio version from 5.23.0 to 4.44.1..."
+        sed -i 's/gradio==5.23.0/gradio==4.44.1/g' requirements.txt
+    fi
+    
     # Show what we're installing
     echo "📋 Installing from fixed requirements.txt:"
-    cat requirements.txt | grep -E "(accelerate|diffusers|transformers)" || echo "No core ML packages found in requirements.txt"
+    cat requirements.txt | grep -E "(accelerate|diffusers|transformers|gradio)" || echo "No core ML packages found in requirements.txt"
     
     pip install -r requirements.txt
 else
