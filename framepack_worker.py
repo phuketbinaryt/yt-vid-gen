@@ -328,7 +328,10 @@ class FramePackWorker:
         
         # Check if it's a predefined ratio
         if aspect_ratio in predefined_ratios:
-            return predefined_ratios[aspect_ratio]
+            width, height = predefined_ratios[aspect_ratio]
+            # Validate predefined ratios against tensor size limits
+            self._validate_tensor_size(width, height, aspect_ratio)
+            return width, height
         
         # Parse custom ratio like "16:9" or "2.35:1"
         try:
@@ -363,10 +366,49 @@ class FramePackWorker:
                 width = (width // 8) * 8
                 height = (height // 8) * 8
             
+            # Validate against tensor size limits
+            self._validate_tensor_size(width, height, aspect_ratio)
+            
             return width, height
             
         except (ValueError, ZeroDivisionError):
             raise ValueError(f"Invalid aspect ratio format: {aspect_ratio}")
+    
+    def _validate_tensor_size(self, width: int, height: int, aspect_ratio: str):
+        """Validate that the dimensions won't create tensors exceeding PyTorch int32 limits"""
+        # Calculate approximate tensor size for a typical video
+        # Latent dimensions are width//8 x height//8
+        latent_width = width // 8
+        latent_height = height // 8
+        
+        # Typical tensor shape: (batch=1, channels=16, frames=60, height, width)
+        # Using 60 frames as a reasonable upper bound for most videos
+        max_frames = 60
+        channels = 16
+        batch_size = 1
+        
+        estimated_tensor_size = batch_size * channels * max_frames * latent_height * latent_width
+        max_int32 = 2**31 - 1
+        
+        print(f"🔍 Dimension validation for {aspect_ratio} ({width}x{height}):")
+        print(f"   Latent size: {latent_width}x{latent_height}")
+        print(f"   Estimated tensor size: {estimated_tensor_size:,} (max frames: {max_frames})")
+        print(f"   PyTorch int32 limit: {max_int32:,}")
+        
+        if estimated_tensor_size > max_int32:
+            # Calculate safe dimensions
+            safe_scale = (max_int32 / estimated_tensor_size) ** 0.5
+            safe_width = int((width * safe_scale) // 8) * 8
+            safe_height = int((height * safe_scale) // 8) * 8
+            
+            raise ValueError(
+                f"Aspect ratio '{aspect_ratio}' with dimensions {width}x{height} would create tensors "
+                f"exceeding PyTorch's int32 limit ({estimated_tensor_size:,} > {max_int32:,}). "
+                f"Try using smaller dimensions like {safe_width}x{safe_height} or a different aspect ratio. "
+                f"Recommended safe ratios: 16:9 (1024x576), 9:16 (576x1024), 1:1 (640x640), 4:3 (768x576)"
+            )
+        
+        print(f"✅ Dimensions {width}x{height} are safe for tensor operations")
     
     @torch.no_grad()
     def process_job(self, job_id: str):
@@ -766,6 +808,59 @@ class FramePackWorker:
         load_model_as_complete(self.vae, target_device=gpu)
         
         real_history_latents = history_latents[:, :, :total_generated_latent_frames, :, :]
+        
+        # Check tensor size to prevent PyTorch int32 overflow
+        tensor_numel = real_history_latents.numel()
+        max_int32 = 2**31 - 1
+        
+        print(f"🔍 Tensor analysis: shape={real_history_latents.shape}, numel={tensor_numel:,}, max_int32={max_int32:,}")
+        
+        if tensor_numel > max_int32:
+            print(f"⚠️ Tensor size ({tensor_numel:,}) exceeds int32 limit ({max_int32:,}), forcing single-frame processing")
+            # Force single-frame processing for oversized tensors
+            pixel_frames = []
+            for frame_idx in range(real_history_latents.shape[2]):
+                try:
+                    frame_latent = real_history_latents[:, :, frame_idx:frame_idx+1, :, :]
+                    frame_numel = frame_latent.numel()
+                    
+                    if frame_numel > max_int32:
+                        print(f"❌ Single frame ({frame_numel:,}) still exceeds int32 limit - this aspect ratio is too large")
+                        raise RuntimeError(f"Frame tensor size ({frame_numel:,}) exceeds PyTorch int32 limit ({max_int32:,}). "
+                                         f"Try using a smaller aspect ratio or reduce video dimensions.")
+                    
+                    torch.cuda.empty_cache()
+                    frame_pixel = vae_decode(frame_latent, self.vae).cpu()
+                    pixel_frames.append(frame_pixel)
+                    
+                    del frame_pixel, frame_latent
+                    torch.cuda.empty_cache()
+                    
+                    if frame_idx % 5 == 0:
+                        print(f"📹 Processed oversized frame {frame_idx + 1}/{real_history_latents.shape[2]}")
+                        
+                except Exception as e:
+                    print(f"❌ Failed to process oversized frame {frame_idx}: {e}")
+                    raise RuntimeError(f"Failed to process frame {frame_idx} due to tensor size constraints: {e}")
+            
+            if pixel_frames:
+                history_pixels = torch.cat(pixel_frames, dim=2)
+                del pixel_frames
+                print(f"✅ Successfully processed oversized tensor using single-frame method")
+            else:
+                raise RuntimeError("No frames could be processed due to tensor size constraints")
+            
+            # Clean up and return early
+            del real_history_latents
+            torch.cuda.empty_cache()
+            unload_complete_models()
+            torch.cuda.empty_cache()
+            
+            # Save intermediate video
+            output_filename = os.path.join(settings.OUTPUT_DIR, f'{job_id}_{timestamp}_{total_generated_latent_frames}.mp4')
+            save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
+            
+            return history_pixels
         
         try:
             if history_pixels is None:
