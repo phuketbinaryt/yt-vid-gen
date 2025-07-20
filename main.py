@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException, BackgroundTasks, Depends, File, Uplo
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 import os
 import torch
@@ -59,6 +60,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for outputs
+app.mount("/outputs", StaticFiles(directory=settings.OUTPUT_DIR), name="outputs")
+app.mount("/uploads", StaticFiles(directory=settings.UPLOAD_DIR), name="uploads")
 
 # Security
 security = HTTPBearer(auto_error=False)
@@ -229,11 +234,25 @@ async def get_job_result(
     
     result_data = job_data.get("result_data", {})
     
+    # Generate static file URLs
+    video_url = None
+    preview_url = None
+    
+    if result_data.get("video_filename"):
+        # Extract filename from full path
+        video_filename = os.path.basename(result_data["video_filename"])
+        video_url = f"/outputs/{video_filename}"
+    
+    if result_data.get("input_filename"):
+        # Extract filename from full path
+        input_filename = os.path.basename(result_data["input_filename"])
+        preview_url = f"/outputs/{input_filename}"
+    
     return JobResultResponse(
         job_id=job_id,
         status=job_data["status"],
-        video_url=f"/api/v1/jobs/{job_id}/download/video" if result_data.get("video_filename") else None,
-        preview_url=f"/api/v1/jobs/{job_id}/download/input" if result_data.get("input_filename") else None,
+        video_url=video_url,
+        preview_url=preview_url,
         metadata=result_data,
         created_at=job_data["created_at"],
         completed_at=job_data.get("completed_at"),
