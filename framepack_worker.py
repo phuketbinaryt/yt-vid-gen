@@ -11,6 +11,15 @@ from PIL import Image
 from datetime import datetime
 import time
 
+# Disable flash-attn if environment variable is set
+if os.environ.get('DISABLE_FLASH_ATTN'):
+    print("⚠️ Flash attention disabled via environment variable")
+    # Monkey patch to disable flash attention in transformers
+    import transformers.utils.import_utils
+    original_is_flash_attn_available = transformers.utils.import_utils.is_flash_attn_2_available
+    transformers.utils.import_utils.is_flash_attn_2_available = lambda: False
+    transformers.utils.import_utils.is_flash_attn_available = lambda: False
+
 # Add FramePack to path
 import os
 framepack_path = os.path.abspath('./FramePack')
@@ -22,8 +31,25 @@ current_dir = os.path.abspath('.')
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from diffusers import AutoencoderKLHunyuanVideo
-from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel
+# Try importing with flash-attn fallback
+try:
+    from diffusers import AutoencoderKLHunyuanVideo
+    from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel
+    print("✅ Successfully imported diffusers and transformers")
+except ImportError as e:
+    if "flash_attn" in str(e):
+        print("⚠️ Flash attention import failed, disabling and retrying...")
+        # Disable flash attention and retry
+        os.environ['DISABLE_FLASH_ATTN'] = '1'
+        import transformers.utils.import_utils
+        transformers.utils.import_utils.is_flash_attn_2_available = lambda: False
+        transformers.utils.import_utils.is_flash_attn_available = lambda: False
+        
+        from diffusers import AutoencoderKLHunyuanVideo
+        from transformers import LlamaModel, CLIPTextModel, LlamaTokenizerFast, CLIPTokenizer, SiglipImageProcessor, SiglipVisionModel
+        print("✅ Successfully imported with flash attention disabled")
+    else:
+        raise
 
 # Import FramePack modules
 from diffusers_helper.hunyuan import encode_prompt_conds, vae_decode, vae_encode, vae_decode_fake
@@ -175,6 +201,18 @@ class FramePackWorker:
         if image.mode != 'RGB':
             image = image.convert('RGB')
         return np.array(image)
+    
+    def download_image_from_url(self, image_url: str) -> np.ndarray:
+        """Download image from URL and convert to numpy array"""
+        try:
+            response = requests.get(image_url, timeout=30)
+            response.raise_for_status()
+            image = Image.open(BytesIO(response.content))
+            if image.mode != 'RGB':
+                image = image.convert('RGB')
+            return np.array(image)
+        except Exception as e:
+            raise ValueError(f"Failed to download image from URL: {str(e)}")
     
     def generate_default_image(self, width: int = 640, height: int = 640) -> np.ndarray:
         """Generate a default image for text-to-video mode"""
