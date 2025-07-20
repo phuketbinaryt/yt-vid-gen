@@ -279,7 +279,7 @@ cd /workspace/yt-vid-gen
 
 # Start Celery worker in background
 echo "👷 Starting Celery worker..."
-/workspace/activate_env.sh celery -A framepack_worker worker --loglevel=info --concurrency=1 &
+/workspace/activate_env.sh celery -A framepack_worker.celery worker --loglevel=info --concurrency=1 &
 
 # Start FastAPI server
 echo "🌐 Starting FastAPI server..."

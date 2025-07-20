@@ -19,7 +19,7 @@ worker_max_tasks_per_child = 1
 
 # Task routing
 task_routes = {
-    'framepack_worker.process_job': {'queue': 'video_generation'},
+    'framepack_worker.process_job_task': {'queue': 'video_generation'},
 }
 
 # Task time limits

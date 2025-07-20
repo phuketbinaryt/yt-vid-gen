@@ -306,7 +306,6 @@ class FramePackWorker:
         image = np.ones((height, width, 3), dtype=np.uint8) * 128  # Gray background
         return image
     
-    @celery.task(bind=True)
     @torch.no_grad()
     def process_job(self, job_id: str):
         """Process a video generation job"""
@@ -682,3 +681,9 @@ class FramePackWorker:
 
 # Global worker instance
 framepack_worker = FramePackWorker()
+
+# Celery task wrapper
+@celery.task(bind=True)
+def process_job_task(self, job_id: str):
+    """Celery task wrapper for video generation job processing"""
+    return framepack_worker.process_job(job_id)
