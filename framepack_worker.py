@@ -438,14 +438,13 @@ class FramePackWorker:
         
         print(f"✅ Dimensions {width}x{height} are safe for all tensor operations including VAE decoding")
     
-    def _validate_runtime_tensor_size(self, tensor: torch.Tensor, operation_name: str, safety_factor: float = 512.0):
-        """Validate tensor size at runtime before VAE operations with balanced safety factor"""
+    def _validate_runtime_tensor_size(self, tensor: torch.Tensor, operation_name: str, safety_factor: float = 256.0):
+        """Validate tensor size at runtime before VAE operations with conservative safety factor"""
         tensor_numel = tensor.numel()
         max_int32 = 2**31 - 1
         
-        # Apply balanced safety factor to account for VAE internal operations and upsampling
-        # The VAE decoder's 3D upsampling can create intermediate tensors that are 512x+ larger than input
-        # This balances safety with video duration preservation
+        # Apply conservative safety factor to account for VAE internal operations and upsampling
+        # Reduced from 512x to 256x to allow longer videos while maintaining safety
         safe_limit = int(max_int32 / safety_factor)
         
         print(f"🔍 Runtime tensor validation for {operation_name}:")
@@ -453,14 +452,16 @@ class FramePackWorker:
         print(f"   Tensor numel: {tensor_numel:,}")
         print(f"   Safe limit (with {safety_factor}x factor): {safe_limit:,}")
         print(f"   PyTorch int32 limit: {max_int32:,}")
+        print(f"   Validation result: {'PASS' if tensor_numel <= safe_limit else 'FAIL'}")
         
         if tensor_numel > safe_limit:
+            print(f"⚠️ Tensor validation failed - will use fallback processing")
             raise RuntimeError(
                 f"Tensor for {operation_name} is too large for safe VAE processing. "
                 f"Tensor size: {tensor_numel:,}, Safe limit: {safe_limit:,} "
                 f"(accounting for {safety_factor}x safety factor for VAE internal operations). "
                 f"This tensor would likely cause PyTorch int32 overflow during VAE decoding. "
-                f"Try using smaller video dimensions or shorter duration."
+                f"Will use single-frame processing instead."
             )
         
         print(f"✅ Tensor is safe for {operation_name}")
@@ -473,7 +474,7 @@ class FramePackWorker:
         if latents.shape[2] == 1:
             # Already single frame, validate with ultra-extreme safety factor
             try:
-                self._validate_runtime_tensor_size(latents, f"{operation_name} (single frame)", safety_factor=512.0)
+                self._validate_runtime_tensor_size(latents, f"{operation_name} (single frame)", safety_factor=256.0)
                 return vae_decode(latents, vae).cpu()
             except RuntimeError as e:
                 # If even single frame with 1024x safety factor fails, try spatial downsampling
@@ -487,7 +488,7 @@ class FramePackWorker:
             
             # Validate each frame with ultra-extreme safety factor
             try:
-                self._validate_runtime_tensor_size(frame_latent, f"{operation_name} frame {frame_idx+1}", safety_factor=512.0)
+                self._validate_runtime_tensor_size(frame_latent, f"{operation_name} frame {frame_idx+1}", safety_factor=256.0)
                 torch.cuda.empty_cache()
                 frame_pixel = vae_decode(frame_latent, vae).cpu()
             except RuntimeError as e:
@@ -532,7 +533,7 @@ class FramePackWorker:
                 self._validate_runtime_tensor_size(
                     downsampled_latents,
                     f"{operation_name} downsampled {factor}x",
-                    safety_factor=512.0
+                    safety_factor=256.0
                 )
                 
                 print(f"🔧 Using {factor}x spatial downsampling: {H}x{W} -> {H//factor}x{W//factor}")
@@ -605,6 +606,7 @@ class FramePackWorker:
             print(f"   Expected frames per section: {latent_window_size * 4 - 3}")
             print(f"   Expected total frames: {total_latent_sections * (latent_window_size * 4 - 3)}")
             print(f"   Expected final video length: {(total_latent_sections * (latent_window_size * 4 - 3)) / 30:.2f} seconds")
+            print(f"   Using F1 model: {use_f1_model}")
             
             job_manager.update_progress(job_id, 5.0, "Processing input...")
             
@@ -765,9 +767,12 @@ class FramePackWorker:
                 )
             
             # Generation loop
+            print(f"🚀 Starting generation loop...")
             if use_f1_model:
                 # F1 model generation logic
+                print(f"📹 Using F1 model generation with {total_latent_sections} sections")
                 for section_index in range(total_latent_sections):
+                    print(f"🔄 Processing F1 section {section_index + 1}/{total_latent_sections}")
                     if not self.high_vram:
                         unload_complete_models()
                         move_model_to_device_with_memory_preservation(
@@ -826,11 +831,15 @@ class FramePackWorker:
             
             else:
                 # Standard model generation logic
-                latent_paddings = reversed(range(total_latent_sections))
+                print(f"📹 Using standard model generation with {total_latent_sections} sections")
+                latent_paddings = list(reversed(range(total_latent_sections)))
                 if total_latent_sections > 4:
                     latent_paddings = [3] + [2] * (total_latent_sections - 3) + [1, 0]
                 
-                for latent_padding in latent_paddings:
+                print(f"🔢 Latent paddings sequence: {latent_paddings}")
+                
+                for section_idx, latent_padding in enumerate(latent_paddings):
+                    print(f"🔄 Processing standard section {section_idx + 1}/{len(latent_paddings)} (padding: {latent_padding})")
                     is_last_section = latent_padding == 0
                     latent_padding_size = latent_padding * latent_window_size
                     
@@ -970,7 +979,7 @@ class FramePackWorker:
         
         # Use new comprehensive tensor size validation with ultra-aggressive VAE safety factor
         try:
-            self._validate_runtime_tensor_size(real_history_latents, "real_history_latents VAE decode", safety_factor=512.0)
+            self._validate_runtime_tensor_size(real_history_latents, "real_history_latents VAE decode", safety_factor=256.0)
             tensor_is_safe = True
         except RuntimeError as e:
             print(f"⚠️ Tensor validation failed: {e}")
@@ -979,8 +988,13 @@ class FramePackWorker:
         
         if not tensor_is_safe:
             # Use the new single-frame processing method
+            print(f"⚠️ Tensor validation failed, using single-frame processing")
+            print(f"   Real history latents shape: {real_history_latents.shape}")
+            print(f"   Total generated latent frames: {total_generated_latent_frames}")
+            
             try:
                 history_pixels = self._force_single_frame_vae_decode(real_history_latents, self.vae, "real_history_latents")
+                print(f"✅ Single-frame processing completed. Result shape: {history_pixels.shape}")
             except RuntimeError as e:
                 print(f"❌ Single-frame processing also failed: {e}")
                 raise RuntimeError(f"Tensor is too large for any VAE processing method: {e}")
@@ -993,6 +1007,9 @@ class FramePackWorker:
             
             # Save intermediate video
             output_filename = os.path.join(settings.OUTPUT_DIR, f'{job_id}_{timestamp}_{total_generated_latent_frames}.mp4')
+            print(f"💾 Saving intermediate video from single-frame processing: {output_filename}")
+            print(f"   Video frames: {history_pixels.shape[2]}")
+            print(f"   Video duration: {history_pixels.shape[2] / 30:.2f} seconds")
             save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
             
             return history_pixels
@@ -1011,7 +1028,7 @@ class FramePackWorker:
                         
                         # Use new comprehensive tensor size validation for chunks
                         try:
-                            self._validate_runtime_tensor_size(chunk_latents, f"chunk_{i//chunk_size} VAE decode", safety_factor=512.0)
+                            self._validate_runtime_tensor_size(chunk_latents, f"chunk_{i//chunk_size} VAE decode", safety_factor=256.0)
                             chunk_is_safe = True
                         except RuntimeError as e:
                             print(f"⚠️ Chunk {i//chunk_size} tensor validation failed: {e}")
@@ -1046,7 +1063,7 @@ class FramePackWorker:
                 
                 # Use new comprehensive tensor size validation for section latents
                 try:
-                    self._validate_runtime_tensor_size(section_latents, "section_latents VAE decode", safety_factor=512.0)
+                    self._validate_runtime_tensor_size(section_latents, "section_latents VAE decode", safety_factor=256.0)
                     section_is_safe = True
                 except RuntimeError as e:
                     print(f"⚠️ Section tensor validation failed: {e}")
