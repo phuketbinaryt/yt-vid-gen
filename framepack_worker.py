@@ -874,10 +874,25 @@ class FramePackWorker:
                         end_idx = min(i + chunk_size, real_history_latents.shape[2])
                         chunk_latents = real_history_latents[:, :, i:end_idx, :, :]
                         
-                        # Clear cache before each chunk
-                        torch.cuda.empty_cache()
-                        
-                        chunk_pixels = vae_decode(chunk_latents, self.vae).cpu()
+                        # Check chunk tensor size
+                        chunk_numel = chunk_latents.numel()
+                        if chunk_numel > max_int32:
+                            print(f"⚠️ Chunk tensor ({chunk_numel:,}) exceeds int32 limit, processing frame by frame")
+                            # Process chunk frame by frame
+                            chunk_pixel_frames = []
+                            for frame_idx in range(chunk_latents.shape[2]):
+                                frame_latent = chunk_latents[:, :, frame_idx:frame_idx+1, :, :]
+                                torch.cuda.empty_cache()
+                                frame_pixel = vae_decode(frame_latent, self.vae).cpu()
+                                chunk_pixel_frames.append(frame_pixel)
+                                del frame_pixel, frame_latent
+                                torch.cuda.empty_cache()
+                            chunk_pixels = torch.cat(chunk_pixel_frames, dim=2)
+                            del chunk_pixel_frames
+                        else:
+                            # Clear cache before each chunk
+                            torch.cuda.empty_cache()
+                            chunk_pixels = vae_decode(chunk_latents, self.vae).cpu()
                         pixel_chunks.append(chunk_pixels)
                         
                         # Move chunk to CPU immediately
@@ -906,10 +921,42 @@ class FramePackWorker:
                 
                 section_latents = real_history_latents[:, :, :section_latent_frames]
                 
-                # Clear cache before decoding
-                torch.cuda.empty_cache()
+                # Check section_latents tensor size before VAE decoding
+                section_tensor_numel = section_latents.numel()
+                max_int32 = 2**31 - 1
                 
-                current_pixels = vae_decode(section_latents, self.vae).cpu()
+                print(f"🔍 Section tensor analysis: shape={section_latents.shape}, numel={section_tensor_numel:,}")
+                
+                if section_tensor_numel > max_int32:
+                    print(f"⚠️ Section tensor size ({section_tensor_numel:,}) exceeds int32 limit, using single-frame processing")
+                    # Process section frame by frame
+                    pixel_frames = []
+                    for frame_idx in range(section_latents.shape[2]):
+                        frame_latent = section_latents[:, :, frame_idx:frame_idx+1, :, :]
+                        frame_numel = frame_latent.numel()
+                        
+                        if frame_numel > max_int32:
+                            print(f"❌ Section frame ({frame_numel:,}) exceeds int32 limit - aspect ratio too large")
+                            raise RuntimeError(f"Frame tensor size ({frame_numel:,}) exceeds PyTorch int32 limit ({max_int32:,}). "
+                                             f"Try using a smaller aspect ratio or reduce video dimensions.")
+                        
+                        torch.cuda.empty_cache()
+                        frame_pixel = vae_decode(frame_latent, self.vae).cpu()
+                        pixel_frames.append(frame_pixel)
+                        
+                        del frame_pixel, frame_latent
+                        torch.cuda.empty_cache()
+                        
+                        if frame_idx % 3 == 0:
+                            print(f"📹 Processed section frame {frame_idx + 1}/{section_latents.shape[2]}")
+                    
+                    current_pixels = torch.cat(pixel_frames, dim=2)
+                    del pixel_frames
+                    print(f"✅ Successfully processed section using single-frame method")
+                else:
+                    # Clear cache before decoding
+                    torch.cuda.empty_cache()
+                    current_pixels = vae_decode(section_latents, self.vae).cpu()
                 
                 # Fix overlap calculation - ensure overlap doesn't exceed BOTH sequence lengths
                 # soft_append_bcthw(history, current, overlap) requires:
