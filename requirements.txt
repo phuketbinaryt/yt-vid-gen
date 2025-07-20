@@ -23,9 +23,9 @@ torchsde==0.2.6
 einops
 opencv-contrib-python
 safetensors
-torch==2.6.0+cu124
-torchvision==0.21.0+cu124
-torchaudio==2.6.0+cu124
+torch==2.6.0
+torchvision==0.21.0
+torchaudio==2.6.0
 
 # Additional utilities
 python-dotenv==1.0.0
