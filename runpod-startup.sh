@@ -39,12 +39,17 @@ else
     pip install fastapi uvicorn redis celery pillow requests python-multipart pydantic-settings
 fi
 
-# Install PyTorch nightly with CUDA (latest RTX 5090 support)
-pip install --pre torch torchvision torchaudio --index-url https://download.pytorch.org/whl/nightly/cu124
+# Uninstall conflicting packages first
+pip uninstall -y gradio torch torchvision torchaudio xformers flash-attn
 
-# Install additional required packages for FramePack
-pip install xformers --pre --index-url https://download.pytorch.org/whl/nightly/cu124
-pip install flash-attn --no-build-isolation
+# Install PyTorch with CUDA 12.4 (stable version with RTX 5090 support)
+pip install torch==2.5.1+cu124 torchvision==0.20.1+cu124 torchaudio==2.5.1+cu124 --index-url https://download.pytorch.org/whl/cu124
+
+# Install xformers compatible with PyTorch 2.5.1
+pip install xformers==0.0.28.post3 --index-url https://download.pytorch.org/whl/cu124
+
+# Skip flash-attn for now to avoid symbol conflicts
+# pip install flash-attn --no-build-isolation
 
 # Install FramePack dependencies
 echo "📦 Installing FramePack dependencies..."
