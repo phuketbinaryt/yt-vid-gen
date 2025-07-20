@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, validator
-from typing import Optional, Union, Literal
+from typing import Optional, Union, Literal, List
 from enum import Enum
 import base64
 
@@ -114,7 +114,7 @@ class HealthResponse(BaseModel):
     models_loaded: bool
 
 class JobListResponse(BaseModel):
-    jobs: list[JobStatusResponse]
+    jobs: List[JobStatusResponse]
     total: int
     page: int
     per_page: int
