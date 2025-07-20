@@ -91,6 +91,10 @@ pip install python-multipart aiofiles
 pip install starlette httpx requests
 pip install python-dotenv
 
+# Install Hugging Face Hub for authentication
+echo "🤗 Installing Hugging Face Hub..."
+pip install huggingface_hub
+
 # Create environment configuration
 echo "⚙️ Setting up environment configuration..."
 cat > .env << EOF
@@ -107,9 +111,12 @@ GPU_MEMORY_PRESERVATION=6.0
 
 # Model Paths (using HuggingFace cache)
 HUNYUAN_MODEL_PATH=hunyuanvideo-community/HunyuanVideo
-FLUX_REDUX_MODEL_PATH=black-forest-labs/FLUX.1-Redux-dev
-FRAMEPACK_MODEL_PATH=lllyasviel/FramePack
-FRAMEPACK_F1_MODEL_PATH=lllyasviel/FramePack-F1
+FLUX_REDUX_MODEL_PATH=lllyasviel/flux_redux_bfl
+FRAMEPACK_MODEL_PATH=lllyasviel/FramePackI2V_HY
+FRAMEPACK_F1_MODEL_PATH=lllyasviel/FramePack_F1_I2V_HY_20250503
+
+# Hugging Face Authentication (set your token here for gated models)
+# HF_TOKEN=your_huggingface_token_here
 
 # File Storage
 UPLOAD_DIR=/workspace/uploads
@@ -138,6 +145,34 @@ mkdir -p /workspace/uploads /workspace/outputs /workspace/temp
 echo "🤗 Setting up HuggingFace cache..."
 export HF_HOME=/workspace/hf_cache
 mkdir -p $HF_HOME
+
+# Setup Hugging Face authentication
+echo "🔐 Setting up Hugging Face authentication..."
+if [ -n "$HF_TOKEN" ]; then
+    echo "Found HF_TOKEN environment variable, authenticating..."
+    python -c "
+import os
+from huggingface_hub import login
+try:
+    token = os.environ.get('HF_TOKEN')
+    if token:
+        login(token=token, add_to_git_credential=True)
+        print('✅ Successfully authenticated with Hugging Face')
+    else:
+        print('⚠️ HF_TOKEN is empty')
+except Exception as e:
+    print(f'⚠️ Failed to authenticate with Hugging Face: {e}')
+    print('Continuing without authentication - some models may not be available')
+"
+else
+    echo "⚠️ HF_TOKEN not found. Some gated models may not be accessible."
+    echo "💡 To use gated models like FLUX Redux:"
+    echo "   1. Get your token from: https://huggingface.co/settings/tokens"
+    echo "   2. Set HF_TOKEN environment variable before running this script"
+    echo "   3. Request access to gated models at their respective pages"
+    echo ""
+    echo "🔄 Continuing with fallback models for image encoding..."
+fi
 
 # Set Python path for FramePack modules
 echo "🐍 Setting up Python path..."

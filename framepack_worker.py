@@ -152,17 +152,62 @@ class FramePackWorker:
                 torch_dtype=torch.float16
             ).cpu()
             
-            # Load image encoder
-            self.feature_extractor = SiglipImageProcessor.from_pretrained(
-                settings.FLUX_REDUX_MODEL_PATH, 
-                subfolder='feature_extractor'
-            )
-            
-            self.image_encoder = SiglipVisionModel.from_pretrained(
-                settings.FLUX_REDUX_MODEL_PATH, 
-                subfolder='image_encoder', 
-                torch_dtype=torch.float16
-            ).cpu()
+            # Load image encoder with fallback for gated repositories
+            try:
+                print(f"Loading image encoder from: {settings.FLUX_REDUX_MODEL_PATH}")
+                self.feature_extractor = SiglipImageProcessor.from_pretrained(
+                    settings.FLUX_REDUX_MODEL_PATH,
+                    subfolder='feature_extractor'
+                )
+                
+                self.image_encoder = SiglipVisionModel.from_pretrained(
+                    settings.FLUX_REDUX_MODEL_PATH,
+                    subfolder='image_encoder',
+                    torch_dtype=torch.float16
+                ).cpu()
+                print("✅ Successfully loaded FLUX Redux image encoder")
+                
+            except Exception as e:
+                error_str = str(e).lower()
+                if "gated" in error_str or "401" in error_str or "unauthorized" in error_str:
+                    print("⚠️ FLUX Redux model is gated, trying alternative image encoder...")
+                    
+                    # Try alternative SigLIP model that's publicly available
+                    try:
+                        alternative_model = "google/siglip-so400m-patch14-384"
+                        print(f"Loading alternative image encoder: {alternative_model}")
+                        
+                        self.feature_extractor = SiglipImageProcessor.from_pretrained(alternative_model)
+                        self.image_encoder = SiglipVisionModel.from_pretrained(
+                            alternative_model,
+                            torch_dtype=torch.float16
+                        ).cpu()
+                        print("✅ Successfully loaded alternative SigLIP image encoder")
+                        
+                    except Exception as e2:
+                        print(f"❌ Failed to load alternative image encoder: {e2}")
+                        # Try the most basic SigLIP model
+                        try:
+                            basic_model = "google/siglip-base-patch16-224"
+                            print(f"Loading basic image encoder: {basic_model}")
+                            
+                            self.feature_extractor = SiglipImageProcessor.from_pretrained(basic_model)
+                            self.image_encoder = SiglipVisionModel.from_pretrained(
+                                basic_model,
+                                torch_dtype=torch.float16
+                            ).cpu()
+                            print("✅ Successfully loaded basic SigLIP image encoder")
+                            
+                        except Exception as e3:
+                            print(f"❌ All image encoder fallbacks failed: {e3}")
+                            raise RuntimeError(
+                                "Failed to load any image encoder. Please ensure you have access to the FLUX Redux model "
+                                "or that alternative models are available. You may need to authenticate with Hugging Face "
+                                "using 'huggingface-cli login' if using gated models."
+                            )
+                else:
+                    print(f"❌ Unexpected error loading image encoder: {e}")
+                    raise
             
             # Load transformer models (both standard and F1)
             self.transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(
