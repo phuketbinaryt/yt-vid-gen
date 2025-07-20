@@ -71,11 +71,26 @@ pip install torchsde
 # Then install from requirements.txt if it exists, but fix problematic versions
 if [ -f "requirements.txt" ]; then
     echo "📋 Installing additional requirements from FramePack requirements.txt..."
-    # Fix accelerate version issue - replace 1.6.0 with 1.0.1 if it exists
+    
+    # Create a backup and fix problematic versions
+    cp requirements.txt requirements.txt.backup
+    
+    # Fix accelerate version issues - replace any 1.6.x with 1.0.1
+    if grep -q "accelerate==1\.6\." requirements.txt; then
+        echo "🔧 Fixing accelerate version from 1.6.x to 1.0.1..."
+        sed -i 's/accelerate==1\.6\.[0-9]*/accelerate==1.0.1/g' requirements.txt
+    fi
+    
+    # Also fix if it's just accelerate==1.6.0
     if grep -q "accelerate==1.6.0" requirements.txt; then
         echo "🔧 Fixing accelerate version from 1.6.0 to 1.0.1..."
         sed -i 's/accelerate==1.6.0/accelerate==1.0.1/g' requirements.txt
     fi
+    
+    # Show what we're installing
+    echo "📋 Installing from fixed requirements.txt:"
+    cat requirements.txt | grep -E "(accelerate|diffusers|transformers)" || echo "No core ML packages found in requirements.txt"
+    
     pip install -r requirements.txt
 else
     echo "⚠️ No requirements.txt found in FramePack"

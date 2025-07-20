@@ -11,6 +11,7 @@ from datetime import datetime
 import asyncio
 import threading
 import time
+from contextlib import asynccontextmanager
 
 from config import settings
 from models import (
@@ -20,13 +21,34 @@ from models import (
 from job_manager import job_manager
 from framepack_worker import framepack_worker
 
-# Initialize FastAPI app
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager"""
+    global worker_thread, worker_running
+    
+    # Startup
+    print("Starting FramePack API...")
+    
+    # Start background worker
+    worker_thread = threading.Thread(target=background_worker, daemon=True)
+    worker_thread.start()
+    
+    print("FramePack API started successfully!")
+    
+    yield
+    
+    # Shutdown
+    worker_running = False
+    print("Shutting down FramePack API...")
+
+# Initialize FastAPI app with lifespan
 app = FastAPI(
     title="FramePack Video Generation API",
     description="Enterprise-grade API for FramePack video generation with job queue management",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan
 )
 
 # Add CORS middleware
@@ -73,26 +95,6 @@ def background_worker():
             print(f"Worker error: {e}")
             time.sleep(5)  # Wait before retrying
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize the application"""
-    global worker_thread
-    
-    print("Starting FramePack API...")
-    
-    # Start background worker
-    worker_thread = threading.Thread(target=background_worker, daemon=True)
-    worker_thread.start()
-    
-    print("FramePack API started successfully!")
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    global worker_running
-    worker_running = False
-    
-    print("Shutting down FramePack API...")
 
 # Health check endpoint
 @app.get("/health", response_model=HealthResponse)

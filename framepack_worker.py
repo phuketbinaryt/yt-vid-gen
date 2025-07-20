@@ -98,6 +98,13 @@ from config import settings
 from job_manager import job_manager
 from models import JobStatus, GenerationMode
 
+# Import Celery
+from celery import Celery
+
+# Create Celery app
+celery = Celery('framepack_worker')
+celery.config_from_object('celery_config')
+
 class FramePackWorker:
     def __init__(self):
         self.models_loaded = False
@@ -299,6 +306,7 @@ class FramePackWorker:
         image = np.ones((height, width, 3), dtype=np.uint8) * 128  # Gray background
         return image
     
+    @celery.task(bind=True)
     @torch.no_grad()
     def process_job(self, job_id: str):
         """Process a video generation job"""
