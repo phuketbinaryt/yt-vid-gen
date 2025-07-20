@@ -62,7 +62,7 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 # Install FramePack requirements
 echo "📋 Installing FramePack requirements..."
 # Always install core dependencies first
-pip install diffusers transformers accelerate
+pip install diffusers transformers accelerate==1.0.1
 pip install pillow opencv-python av
 pip install numpy scipy einops
 pip install safetensors sentencepiece
