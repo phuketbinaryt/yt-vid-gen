@@ -6,7 +6,7 @@ echo "🚀 Starting FramePack API deployment on clean Ubuntu server..."
 # Update system and install basic dependencies
 echo "📦 Installing system dependencies..."
 apt update && apt upgrade -y
-apt install -y git curl wget build-essential python3-dev python3-pip redis-server
+apt install -y git curl wget build-essential python3-dev python3-pip python3-venv python3-full redis-server
 
 # Install CUDA toolkit if not present (for GPU support)
 echo "🔧 Setting up CUDA environment..."
@@ -20,9 +20,11 @@ if ! command -v nvcc &> /dev/null; then
     export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 fi
 
-# Set up Python environment
-echo "🐍 Setting up Python environment..."
-python3 -m pip install --upgrade pip setuptools wheel
+# Set up Python virtual environment
+echo "🐍 Setting up Python virtual environment..."
+python3 -m venv /workspace/framepack-env
+source /workspace/framepack-env/bin/activate
+pip install --upgrade pip setuptools wheel
 
 # Clone our API repository
 echo "📥 Cloning FramePack API repository..."
@@ -55,36 +57,36 @@ cd FramePack
 
 # Install PyTorch with CUDA support (following FramePack requirements)
 echo "🔥 Installing PyTorch with CUDA support..."
-pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 
 # Install FramePack requirements
 echo "📋 Installing FramePack requirements..."
 if [ -f "requirements.txt" ]; then
-    pip3 install -r requirements.txt
+    pip install -r requirements.txt
 else
     echo "⚠️ No requirements.txt found in FramePack, installing known dependencies..."
     # Install known FramePack dependencies
-    pip3 install diffusers transformers accelerate
-    pip3 install pillow opencv-python av
-    pip3 install numpy scipy einops
-    pip3 install safetensors sentencepiece
-    pip3 install torchsde
+    pip install diffusers transformers accelerate
+    pip install pillow opencv-python av
+    pip install numpy scipy einops
+    pip install safetensors sentencepiece
+    pip install torchsde
 fi
 
 # Install attention optimizations
 echo "⚡ Installing attention optimizations..."
-pip3 install xformers
-pip3 install flash-attn --no-build-isolation
+pip install xformers
+pip install flash-attn --no-build-isolation
 
 cd ..
 
 # Install our API dependencies
 echo "🌐 Installing API dependencies..."
-pip3 install fastapi uvicorn redis celery
-pip3 install pydantic pydantic-settings
-pip3 install python-multipart aiofiles
-pip3 install starlette httpx requests
-pip3 install python-dotenv
+pip install fastapi uvicorn redis celery
+pip install pydantic pydantic-settings
+pip install python-multipart aiofiles
+pip install starlette httpx requests
+pip install python-dotenv
 
 # Create environment configuration
 echo "⚙️ Setting up environment configuration..."
@@ -148,7 +150,7 @@ sleep 3
 # Test FramePack installation
 echo "🧪 Testing FramePack installation..."
 cd /workspace/yt-vid-gen
-python3 -c "
+python -c "
 import sys
 sys.path.insert(0, './FramePack')
 try:
@@ -179,17 +181,29 @@ else
     exit 1
 fi
 
+# Create activation script for services
+echo "📝 Creating virtual environment activation script..."
+cat > /workspace/activate_env.sh << 'EOF'
+#!/bin/bash
+source /workspace/framepack-env/bin/activate
+export PYTHONPATH="/workspace/yt-vid-gen/FramePack:$PYTHONPATH"
+export HF_HOME=/workspace/hf_cache
+cd /workspace/yt-vid-gen
+exec "$@"
+EOF
+chmod +x /workspace/activate_env.sh
+
 # Start the API server
 echo "🎬 Starting FramePack API server..."
 cd /workspace/yt-vid-gen
 
 # Start Celery worker in background
 echo "👷 Starting Celery worker..."
-celery -A framepack_worker worker --loglevel=info --concurrency=1 &
+/workspace/activate_env.sh celery -A framepack_worker worker --loglevel=info --concurrency=1 &
 
 # Start FastAPI server
 echo "🌐 Starting FastAPI server..."
-python3 main.py &
+/workspace/activate_env.sh python main.py &
 
 # Keep container running and show logs
 echo "✅ FramePack API is running!"
