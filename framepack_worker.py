@@ -984,13 +984,13 @@ class FramePackWorker:
                     print(f"🔧 Will use single-frame processing for section")
                     section_is_safe = False
                 
-                if not section_is_safe:
-                    # Use the new single-frame processing method for section
-                    current_pixels = self._force_single_frame_vae_decode(section_latents, self.vae, "section_latents")
-                else:
+                if section_is_safe:
                     # Clear cache before decoding
                     torch.cuda.empty_cache()
                     current_pixels = vae_decode(section_latents, self.vae).cpu()
+                else:
+                    # Use the new single-frame processing method for section
+                    current_pixels = self._force_single_frame_vae_decode(section_latents, self.vae, "section_latents")
                 
                 # Fix overlap calculation - ensure overlap doesn't exceed BOTH sequence lengths
                 # soft_append_bcthw(history, current, overlap) requires:
