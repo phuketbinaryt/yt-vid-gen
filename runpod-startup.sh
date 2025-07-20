@@ -6,7 +6,7 @@ echo "🚀 Starting FramePack API deployment on clean Ubuntu server..."
 # Update system and install basic dependencies
 echo "📦 Installing system dependencies..."
 apt update && apt upgrade -y
-apt install -y git curl wget build-essential python3-dev python3-pip python3-venv python3-full redis-server
+apt install -y git curl wget build-essential python3-dev python3-pip python3-venv redis-server
 
 # Install CUDA toolkit if not present (for GPU support)
 echo "🔧 Setting up CUDA environment..."
