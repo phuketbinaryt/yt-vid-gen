@@ -438,13 +438,13 @@ class FramePackWorker:
         
         print(f"✅ Dimensions {width}x{height} are safe for all tensor operations including VAE decoding")
     
-    def _validate_runtime_tensor_size(self, tensor: torch.Tensor, operation_name: str, safety_factor: float = 64.0):
+    def _validate_runtime_tensor_size(self, tensor: torch.Tensor, operation_name: str, safety_factor: float = 256.0):
         """Validate tensor size at runtime before VAE operations with safety factor for intermediate tensors"""
         tensor_numel = tensor.numel()
         max_int32 = 2**31 - 1
         
-        # Apply ultra-aggressive safety factor to account for VAE internal operations and upsampling
-        # The VAE decoder can create intermediate tensors that are 64x+ larger than input during complex upsampling
+        # Apply extreme safety factor to account for VAE internal operations and upsampling
+        # The VAE decoder can create intermediate tensors that are 256x+ larger than input during complex upsampling
         safe_limit = int(max_int32 / safety_factor)
         
         print(f"🔍 Runtime tensor validation for {operation_name}:")
@@ -471,7 +471,7 @@ class FramePackWorker:
         
         if latents.shape[2] == 1:
             # Already single frame, validate and decode
-            self._validate_runtime_tensor_size(latents, f"{operation_name} (single frame)", safety_factor=64.0)
+            self._validate_runtime_tensor_size(latents, f"{operation_name} (single frame)", safety_factor=256.0)
             return vae_decode(latents, vae).cpu()
         
         # Process frame by frame
@@ -481,7 +481,7 @@ class FramePackWorker:
             
             # Validate each frame
             try:
-                self._validate_runtime_tensor_size(frame_latent, f"{operation_name} frame {frame_idx+1}", safety_factor=64.0)
+                self._validate_runtime_tensor_size(frame_latent, f"{operation_name} frame {frame_idx+1}", safety_factor=256.0)
             except RuntimeError as e:
                 raise RuntimeError(f"Even single frame is too large for VAE processing: {e}")
             
@@ -901,7 +901,7 @@ class FramePackWorker:
         
         # Use new comprehensive tensor size validation with ultra-aggressive VAE safety factor
         try:
-            self._validate_runtime_tensor_size(real_history_latents, "real_history_latents VAE decode", safety_factor=64.0)
+            self._validate_runtime_tensor_size(real_history_latents, "real_history_latents VAE decode", safety_factor=256.0)
             tensor_is_safe = True
         except RuntimeError as e:
             print(f"⚠️ Tensor validation failed: {e}")
